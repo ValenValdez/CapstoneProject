@@ -8,6 +8,7 @@ from groq import Groq
 from typing import Optional
 from dotenv import load_dotenv
 import base64
+import re
 from PIL import Image
 
 load_dotenv()
@@ -31,6 +32,8 @@ def cargar_dataset():
 			return json.load(f)
 	except Exception:
 		return []
+
+#FUNCIONAMIENTO EN PRIVADO
 
 def buscar_en_dataset(pregunta, dataset):
 	pregunta = pregunta.strip().lower()
@@ -97,7 +100,7 @@ Si el usuario formula preguntas personales o fuera del contexto de capacitación
 dataset = cargar_dataset()
 
 # Handler para los comandos /start y /help
-@bot.message_handler(commands=['start'])
+@bot.message_handler(commands=['start'], chat_types=["private"])
 def send_welcome(message):
 	# Responde con un mensaje de bienvenida
 	bot.send_chat_action(message.chat.id, "typing")
@@ -145,7 +148,7 @@ def trascribe_voice_with_groq(message: tlb.types.Message) -> Optional[str]:
         print(f"Error al transcribir; {str(e)}")
         return None   
 
-@bot.message_handler(content_types=['voice'])
+@bot.message_handler(content_types=['voice'], chat_types=["private"])
 def handle_voice_message(message: tlb.types.Message):
 
     # Enviar mensaje de "escribiendo..."
@@ -314,7 +317,7 @@ def describir_imagen_con_groq(imagen_base64):
         # Permite al código que llama esta función saber que no se obtuvo descripción
         return None
 
-@bot.message_handler(commands=['help'])
+@bot.message_handler(commands=['help'], chat_types=["private"])
 
 def enviar_ayuda(message):
     """Mensaje de ayuda"""
@@ -347,7 +350,7 @@ Si algo no funciona, intenta enviar la imagen de nuevo."""
     bot.reply_to(message, texto_ayuda)
 
 
-@bot.message_handler(content_types=['photo'])
+@bot.message_handler(content_types=['photo'], chat_types=["private"])
 def manejar_foto(message):
     # Docstring que documenta la función
     """Procesa las imágenes enviadas por el usuario"""
@@ -472,7 +475,7 @@ def manejar_foto(message):
         # Le sugiere intentar de nuevo
         bot.reply_to(message, "❌ Ocurrió un error al procesar tu imagen. Intenta de nuevo.")
 
-@bot.message_handler(func=lambda message: True)
+@bot.message_handler(func=lambda message: True, chat_types=["private"])
 def responder(message):
 	# Obtiene el texto del mensaje recibido
 	pregunta = message.text
@@ -486,6 +489,23 @@ def responder(message):
 		# Si no la encuentra, consulta la IA de Groq y responde con la respuesta generada
 		respuesta_ia = get_groq_response(pregunta)
 		bot.reply_to(message, respuesta_ia)
+          
+#FUNCIONAMIENTO EN GRUPOS
+@bot.message_handler(commands=['start'], chat_types=["group", "supergroup"])
+def send_welcome_group(message):
+    # Responde con un mensaje de bienvenida
+    bot.send_chat_action(message.chat.id, "typing")
+    bot.reply_to(message, "¡Hola! Soy Gamma Academy, un bot IA. Envie un archivo y creare un quiz basado en su contenido.")
+
+@bot.message_handler(content_types=['document'], chat_types=["group", "supergroup"])
+def handle_document(message):
+    bot.reply_to(message, f"Recibí tu archivo: {message.document.file_name}, voy a crear un quiz basado en su contenido. ⏳")
+
+@bot.message_handler(func=lambda message: bool(re.search(r'http[s]?://', message.text or '')), chat_types=["group", "supergroup"])
+def handle_link(message):
+    bot.reply_to(message, f"Veo que enviaste un link: {message.text}, voy a crear un quiz basado en su contenido.")
+
+
 # Punto de entrada principal del script
 if __name__ == "__main__":
     # Imprime un mensaje en consola indicando que el bot está iniciado
