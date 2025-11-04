@@ -9,6 +9,9 @@ from typing import Optional
 from dotenv import load_dotenv
 import base64
 from PIL import Image
+from pytubefix import YouTube
+from groq import Groq
+from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -498,3 +501,62 @@ if __name__ == "__main__":
             print(f"Error en el bot: {str(e)}")
             print("Reiniciando el bot...")
             time.sleep(5)  # Espera antes de reintentar
+
+
+#Transcripcion de youtube con Groq
+
+
+client = Groq(api_key=GROQ_API_KEY)
+
+def download_audio_from_youtube(url, output_path="downloads"):
+    """Descarga solo el audio de un video de YouTube y devuelve la ruta del archivo."""
+    try:
+        yt = YouTube(url)
+        stream = yt.streams.filter(only_audio=True).first()
+
+        if not os.path.exists(output_path):
+            os.makedirs(output_path)
+
+        print(f"Descargando audio de: {yt.title}")
+        out_file = stream.download(output_path)
+        base, _ = os.path.splitext(out_file)
+        new_file = base + ".mp3"
+        os.rename(out_file, new_file)
+
+        print(f"Audio descargado en: {new_file}")
+        return new_file
+    except Exception as e:
+        print(f"Error al descargar el audio: {e}")
+        return None
+
+def transcribe_with_groq(audio_path):
+    """Transcribe un archivo de audio usando la API de Groq (Whisper Large v3)."""
+    try:
+        print("Transcribiendo con Groq (modelo Whisper-Large-V3)...")
+        with open(audio_path, "rb") as f:
+            transcription = client.audio.transcriptions.create(
+                file=f,
+                model="whisper-large-v3"
+            )
+        print("Transcripción completada.")
+        return transcription.text
+    except Exception as e:
+        print(f"Error al transcribir: {e}")
+        return None
+
+def youtube_to_text(url):
+    """Descarga el audio, lo transcribe y guarda el texto en un archivo."""
+    audio_file = download_audio_from_youtube(url)
+    if not audio_file:
+        return
+
+    text = transcribe_with_groq(audio_file)
+    if text:
+        output_file = "transcripcion.txt"
+        with open(output_file, "w", encoding="utf-8") as f:
+            f.write(text)
+        print(f"Transcripción guardada en: {output_file}")
+
+if __name__ == "__main__":
+    url = input("Pegá el enlace del video de YouTube: ").strip()
+    youtube_to_text(url)
