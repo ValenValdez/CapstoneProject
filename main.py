@@ -13,6 +13,7 @@ from PIL import Image
 import mimetypes
 from PyPDF2 import PdfReader
 from docx import Document
+from pytubefix import YouTube
 
 load_dotenv()
 
@@ -102,13 +103,6 @@ Si el usuario formula preguntas personales o fuera del contexto de capacitación
 	
 dataset = cargar_dataset()
 
-# Handler para los comandos /start y /help
-@bot.message_handler(commands=['start'], chat_types=["private"])
-def send_welcome(message):
-	# Responde con un mensaje de bienvenida
-	bot.send_chat_action(message.chat.id, "typing")
-	bot.reply_to(message, "¡Hola! Soy Gamma Academy, un bot IA. Pregúntame algo y responderé usando IA o mi base de datos. Usa el comando /empezar 'nombre del quiz' para hacer algun quiz. Usa el comando /cursos para ver cuales estan disponibles.")
-
 
 # Configuracion del bot
 
@@ -151,20 +145,8 @@ def trascribe_voice_with_groq(message: tlb.types.Message) -> Optional[str]:
         print(f"Error al transcribir; {str(e)}")
         return None   
 
-@bot.message_handler(content_types=['voice'], chat_types=["private"])
-def handle_voice_message(message: tlb.types.Message):
-    bot.send_chat_action(message.chat.id, 'typing')
-    transcription = trascribe_voice_with_groq(message)
-    if not transcription:
-        bot.reply_to(message, "❌ Lo siento, no pude transcribir el audio. Por favor, intenta de nuevo.")
-        return
-    response = get_groq_response(transcription)
-    if response:
-        bot.reply_to(message, response)
-    else:
-        error_message = """❌ Lo siento, hubo un error al procesar tu consulta.
-Por favor, intenta nuevamente"""
-        bot.reply_to(message, error_message)
+
+    
 def imagen_a_base64(ruta_o_bytes_imagen):
     """Convierte una imagen a base64 para enviarla a Groq"""
     try:
@@ -208,8 +190,8 @@ def describir_imagen_con_groq(imagen_base64):
         return None
 
 def extraer_texto_de_documento(file_bytes, file_name):
-    os.makedirs("CapstoneProject/temp", exist_ok=True)
-    file_path = f"CapstoneProject/temp/{file_name}"
+    os.makedirs("temp", exist_ok=True)
+    file_path = f"temp/{file_name}"
 
     # Guarda los bytes en un archivo temporal
     with open(file_path, "wb") as f:
@@ -261,10 +243,10 @@ def generar_quiz_con_groq(texto, nombre_documento):
     nombre_base = nombre_base.replace(" ", "_")
 
     # Buscar nombre disponible
-    ruta = f"CapstoneProject/quizzes/{nombre_base}.json"
+    ruta = f"quizzes/{nombre_base}.json"
     contador = 1
     while os.path.exists(ruta):
-        ruta = f"CapstoneProject/quizzes/{nombre_base}_{contador}.json"
+        ruta = f"quizzes/{nombre_base}_{contador}.json"
         contador += 1
 
     prompt = f"""
@@ -286,21 +268,73 @@ def generar_quiz_con_groq(texto, nombre_documento):
     )
 
     quiz = response.choices[0].message.content.strip()
-
-    # --- Limpieza del texto devuelto ---
-    quiz = quiz.strip("`")  # Elimina ` o ``` si los pone
+    quiz = quiz.strip("`") 
     quiz = quiz.replace("```json", "").replace("```", "").strip()
 
-    # Si no empieza con [ lo envolvemos en []
     if not quiz.strip().startswith("["):
         quiz = f"[{quiz}]"
 
-    # Guardar el archivo limpio
     with open(ruta, "w", encoding="utf-8") as f:
         f.write(quiz)
 
     print(f"\n✅ QUIZ GENERADO: {ruta}\n")
     return nombre_base
+
+def download_audio_from_youtube(url, output_path="temp_audio"):
+    """Descarga solo el audio de un video de YouTube y devuelve la ruta del archivo."""
+    try:
+        yt = YouTube(url)
+        stream = yt.streams.filter(only_audio=True).first()
+
+        os.makedirs(output_path, exist_ok=True)
+        print(f"Descargando audio de: {yt.title}")
+        out_file = stream.download(output_path)
+        base, _ = os.path.splitext(out_file)
+        new_file = os.path.join(output_path, f"{yt.title}.mp3")
+        os.rename(out_file, new_file)
+
+        print(f"Audio descargado en: {new_file}")
+        return new_file
+    except Exception as e:
+        print(f"Error al descargar el audio: {e}")
+        return None
+
+def transcribe_with_groq(audio_path):
+    """Transcribe un archivo de audio usando la API de Groq (Whisper Large v3)."""
+    try:
+        with open(audio_path, "rb") as f:
+            transcription = cliente_groq.audio.transcriptions.create(
+                file=f,
+                model="whisper-large-v3"
+            )
+        os.remove(audio_path)
+        return transcription.text
+    except Exception as e:
+        print(f"Error al transcribir: {e}")
+        os.remove(audio_path)
+        return None
+
+@bot.message_handler(commands=['start'], chat_types=["private"])
+def send_welcome(message):
+	# Responde con un mensaje de bienvenida
+	bot.send_chat_action(message.chat.id, "typing")
+	bot.reply_to(message, "¡Hola! Soy Gamma Academy, un bot IA. Pregúntame algo y responderé usando IA o mi base de datos. Usa el comando /empezar 'nombre del quiz' para hacer algun quiz. Usa el comando /cursos para ver cuales estan disponibles.")
+
+@bot.message_handler(content_types=['voice'], chat_types=["private"])
+def handle_voice_message(message: tlb.types.Message):
+    bot.send_chat_action(message.chat.id, 'typing')
+    transcription = trascribe_voice_with_groq(message)
+    if not transcription:
+        bot.reply_to(message, "❌ Lo siento, no pude transcribir el audio. Por favor, intenta de nuevo.")
+        return
+    response = get_groq_response(transcription)
+    if response:
+        bot.reply_to(message, response)
+    else:
+        error_message = """❌ Lo siento, hubo un error al procesar tu consulta.
+Por favor, intenta nuevamente"""
+        bot.reply_to(message, error_message)
+        return
 
 @bot.message_handler(commands=['help'], chat_types=["private"])
 def enviar_ayuda(message):
@@ -379,8 +413,8 @@ def handle_document(message):
     downloaded_file = bot.download_file(file_info.file_path)
     file_name = message.document.file_name
 
-    file_path = f"CapstoneProject/temp/{file_name}"
-    os.makedirs("CapstoneProject/temp", exist_ok=True)
+    file_path = f"temp/{file_name}"
+    os.makedirs("temp", exist_ok=True)
     with open(file_path, 'wb') as f:
         f.write(downloaded_file)
 
@@ -399,6 +433,24 @@ def handle_document(message):
 @bot.message_handler(func=lambda message: bool(re.search(r'http[s]?://', message.text or '')), chat_types=["group", "supergroup"])
 def handle_link(message):
     bot.reply_to(message, f"Veo que enviaste un link: {message.text}, voy a crear un quiz basado en su contenido. ⏳")
+    audio_file = download_audio_from_youtube(message.text)
+    if not audio_file:
+        return print("No se pudo descargar el audio.")
+
+    text = transcribe_with_groq(audio_file)
+    if not text:
+        bot.reply_to(message, "❌ No pude transcribir el audio.")
+        return
+    file_name = os.path.basename(audio_file)
+    quiz = generar_quiz_con_groq(text, file_name)
+    try:
+        if os.path.exists(audio_file):
+            os.remove(audio_file)
+            print(f"🧹 Archivo temporal eliminado: {audio_file}")
+    except Exception as e:
+        print(f"⚠️ No se pudo eliminar {audio_file}: {e}")
+
+    bot.reply_to(message, f"✅ ¡Quiz generado!. Envienme al privado el comando /empezar {quiz} .")
 
 
 # Punto de entrada principal del script
