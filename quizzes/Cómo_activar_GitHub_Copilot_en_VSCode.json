@@ -1,0 +1,52 @@
+[
+  {
+    "pregunta": "¿Qué es necesario tener para activar GitHub Copilot en VS Code?",
+    "opciones": [
+      "Una cuenta en GitHub",
+      "Un proyecto de programación",
+      "Un código de acceso",
+      "Un navegador web alternativo"
+    ],
+    "respuesta_correcta": "a"
+  },
+  {
+    "pregunta": "¿Cómo se instala la extensión de GitHub Copilot en VS Code?",
+    "opciones": [
+      "Buscando en el marketplace de VS Code",
+      "Iniciando sesión con GitHub Copilot",
+      "Descargando un archivo zip",
+      "Ejecutando un comando en la terminal"
+    ],
+    "respuesta_correcta": "b"
+  },
+  {
+    "pregunta": "¿Qué tipo de archivo se creó para escribir código con la ayuda de GitHub Copilot?",
+    "opciones": [
+      "Un archivo .txt",
+      "Un archivo .py o una notebook de Jupyter",
+      "Un archivo .json",
+      "Un archivo .csv"
+    ],
+    "respuesta_correcta": "b"
+  },
+  {
+    "pregunta": "¿Qué biblioteca de graficación se utilizó en el ejemplo con GitHub Copilot?",
+    "opciones": [
+      "Matplotlib",
+      "Seaborn",
+      "Plotly",
+      "Bokeh"
+    ],
+    "respuesta_correcta": "b"
+  },
+  {
+    "pregunta": "¿Cómo se activa la predicción de código en VS Code con GitHub Copilot?",
+    "opciones": [
+      "Presionando la tecla F5",
+      "Escribiendo el primer comentario de la instrucción",
+      "Haciendo clic en un botón",
+      "Seleccionando una opción del menú"
+    ],
+    "respuesta_correcta": "b"
+  }
+]
