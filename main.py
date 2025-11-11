@@ -17,6 +17,7 @@ from pytubefix import YouTube
 import manejo_de_quizzes as mdq
 import datetime
 import pandas as pd
+import html
 
 load_dotenv()
 
@@ -67,29 +68,30 @@ def buscar_en_dataset(pregunta, dataset):
 
 def get_groq_response(user_message: str) -> Optional[str]:
     try:
-        system_prompt = f"""Eres un asistente virtual de capacitación interna diseñado para ayudar a los empleados de una empresa a aprender sobre la organización, sus políticas, valores, procedimientos y herramientas de trabajo.
-Tu tarea principal es responder preguntas relacionadas con la empresa y su cultura corporativa, además de crear pequeños quizzes o preguntas de repaso para reforzar el aprendizaje.
+        system_prompt = f"""Eres Gamma Academy, un asistente virtual de capacitación interna diseñado para ayudar a los empleados de una empresa.
 
-Tus respuestas deben ser claras, profesionales y breves, adecuadas para un entorno laboral. Puedes usar un tono amable pero siempre formal.
+        Funcionalidades Clave del Bot (Tu conocimiento):
+        * Capacidad de crear quizzes a partir de archivos (PDF, DOCX) y enlaces de YouTube.
+        * Capacidad de evaluar respuestas de quizzes de texto (botones), voz (transcripción) e imagen (descripción visual).
+        * Capacidad de exportar resultados finales de un quiz específico a un archivo Excel (.xlsx).
+        * Capacidad de realizar análisis de sentimiento del feedback del usuario al finalizar un quiz.
 
+        Comandos disponibles:
+        * /start: Mensaje de bienvenida.
+        * /empezar [nombre]: Inicia un quiz específico en el chat privado.
+        * /cursos: Muestra la lista de todos los quizzes disponibles.
+        * /exportar [nombre]: Exporta los resultados finales de un quiz específico a Excel.
 
-Datos de la empresa:
-{json.dumps(DATASET_PATH, ensure_ascii=False, indent=2)}
+        Reglas y Tono:
+        1. Responde preguntas generales, conversacionales y sobre las **Funcionalidades Clave** de esta plataforma.
+        2. Utiliza siempre un tono amable, profesional y formal. Sé conciso y directo.
+        3. Si la pregunta está fuera del contexto de capacitación o es personal, responde: 'Mi función es asistir en temas de capacitación y aprendizaje interno.'
+        4. NO inventes ni agregues información. Si la pregunta requiere datos específicos no cubiertos, indícalo educadamente.
+        5. NO utilices emojis ni lenguaje coloquial.
+        6. Cuando el usuario pida un quiz o evaluación, genera entre 3 y 5 preguntas cortas. No incluyas respuestas.
+        7. Si el usuario solicita modificar, actualizar o agregar información al bot, responde que no tienes permisos.
+        """
 
-
-Reglas importantes:
-Responde solo con la información disponible en tu dataset o en la base de conocimiento interna de la empresa.
-No inventes ni agregues contenido adicional más allá de lo que esté en el dataset.
-No incluyas saludos, despedidas ni frases de cortesía (por ejemplo: "Hola", "Gracias por tu consulta", etc.).
-Tus respuestas deben ir directo al punto.
-Cuando el usuario pida un quiz o evaluación, genera entre 3 y 5 preguntas cortas relacionadas con los temas disponibles en tu dataset.
-Pueden ser de opción múltiple o de verdadero/falso.
-No evalúes las respuestas, solo formula las preguntas.
-No utilices emojis ni lenguaje coloquial.
-Usa redacción neutra, profesional y sin tecnicismos innecesarios.
-Si el usuario solicita modificar, actualizar o agregar información, responde que no tienes permisos para modificar la base de datos.
-Si el usuario formula preguntas personales o fuera del contexto de capacitación, puedes responder con una frase general del estilo:
-"Mi función es asistir en temas de capacitación y aprendizaje interno."""
 
         chat_completion = cliente_groq.chat.completions.create(
             messages=[
@@ -532,6 +534,10 @@ def exportar_resultados_a_excel(quiz_name: str):
         print(f"❌ Error al exportar a Excel: {e}")
         return None
 
+def escapar_html(text: str) -> str:
+    """Escapa los caracteres especiales para ser interpretados como texto plano en HTML."""
+    return html.escape(text)
+
 #===========================HANDLERS DEL BOT===========================
 #FUNCIONAMIENTO EN PRIVADO
 @bot.message_handler(commands=['start'], chat_types=["private"])
@@ -636,7 +642,7 @@ def manejar_respuesta_imagen_quiz(message: tlb.types.Message):
 
         prompt = f"""
         INSTRUCCIÓN CLAVE: Responde ÚNICAMENTE con la palabra 'True' o con la palabra 'False'. No agregues comillas, explicación, saludos, puntuación ni ningún texto adicional.
-
+        INSTRUCCIÓN CLAVE: NO utilices asteriscos (*), guiones bajos (_) ni ningún otro carácter para dar formato. Responde ÚNICAMENTE con texto plano.
         Evalúa si la imagen del usuario (descrita abajo) cumple correctamente la consigna.
 
         Pregunta: {pregunta_actual.pregunta}
@@ -653,7 +659,8 @@ def manejar_respuesta_imagen_quiz(message: tlb.types.Message):
         evaluacion_texto = evaluacion.choices[0].message.content.strip().lower()
         es_correcta = "true" in evaluacion_texto
         feedback = "✅ ¡Correcto!" if es_correcta else "❌ Incorrecto."
-        bot.reply_to(message, f"{feedback}\n\nDescripción de tu imagen: {descripcion}", parse_mode="Markdown")
+        descripcion_segura = escapar_html(descripcion)
+        bot.reply_to(message, f"{feedback}\n\nDescripción de tu imagen: {descripcion_segura}", parse_mode="HTML")
         procesar_avance_quiz(bot, chat_id, message, message.from_user, es_correcta)
         return
     pass
@@ -743,29 +750,8 @@ def enviar_ayuda(message):
 Si algo no funciona, intenta enviar la imagen de nuevo."""
     bot.reply_to(message, texto_ayuda)
 
-# @bot.message_handler(commands=['feedback'], chat_types=["private"])
-# def recibir_feedback(message):
-
-
-
-# @bot.message_handler(func=lambda message: True, chat_types=["private"])
-# def responder(message):
-# 	pregunta = message.text
-# 	respuesta = buscar_en_dataset(pregunta, dataset)
-# 	if respuesta:
-# 		bot.reply_to(message, respuesta)
-# 	else:
-# 		respuesta_ia = get_groq_response(pregunta)
-# 		bot.reply_to(message, respuesta_ia)
-
-
-#FUNCIONAMIENTO EN GRUPOS
-@bot.message_handler(commands=['start'], chat_types=["group", "supergroup"])
-def send_welcome_group(message):
-    bot.send_chat_action(message.chat.id, "typing")
-    bot.reply_to(message, "¡Hola! Soy Gamma Academy, un bot IA. Envie un archivo o un video de Youtube y creare un quiz basado en su contenido.")
-
-# === COMANDO PARA EXPORTAR (Funciona en publico y en privado) ===
+#Funcionamiento en publico y en privado
+# === COMANDO PARA EXPORTAR ===
 @bot.message_handler(commands=['exportar'])
 def exportar_resultados(message):
     bot.send_chat_action(message.chat.id, "typing")
@@ -787,6 +773,56 @@ def exportar_resultados(message):
             print(f"❌ Error al borrar el archivo {ruta_excel}: {e}")
     else:
         bot.reply_to(message, f"⚠️ No hay resultados para el quiz \"{nombre_quiz_a_exportar}\" o el archivo no pudo ser creado.")
+
+@bot.message_handler(commands=['cursos'])
+def mostrar_cursos_disponibles(message):
+    bot.send_chat_action(message.chat.id, "typing")
+    chat_id = message.chat.id
+    
+    # Obtenemos la lista de nombres de quizzes cargados
+    cursos = manejador_quizzes.quizzes_cargados.keys()
+    
+    if cursos:
+        # Generamos una lista numerada
+        lista_cursos = "\n".join([f"• {nombre.upper()}" for nombre in sorted(cursos)])
+        
+        mensaje = (
+            "📚 **Cursos disponibles (Quizzes):**\n\n"
+            f"{lista_cursos}\n\n"
+            "Para empezar uno, usa el comando:\n"
+            "`/empezar nombre_del_quiz`"
+        )
+    else:
+        mensaje = "⚠️ Por el momento, no hay quizzes/cursos disponibles. Genera uno con un archivo o link de YouTube."
+        
+    bot.send_message(chat_id, mensaje, parse_mode='Markdown')
+
+@bot.message_handler(func=lambda message: True, chat_types=["private"])
+def responder_a_texto_general(message):
+    chat_id = message.chat.id
+    tipo_esperado_quiz = manejador_quizzes.obtener_tipo_esperado(chat_id)
+    if tipo_esperado_quiz in ('voice', 'photo'):
+        return 
+    
+    pregunta = message.text
+    bot.send_chat_action(chat_id, "typing")
+
+    respuesta = buscar_en_dataset(pregunta, dataset) 
+
+    if respuesta:
+        bot.reply_to(message, respuesta)
+    else:
+        respuesta_ia = get_groq_response(pregunta)
+        if respuesta_ia:
+            bot.reply_to(message, respuesta_ia)
+        else:
+            bot.reply_to(message, "Lo siento, no pude encontrar una respuesta ni generar una con la IA.")
+
+#FUNCIONAMIENTO EN GRUPOS
+@bot.message_handler(commands=['start'], chat_types=["group", "supergroup"])
+def send_welcome_group(message):
+    bot.send_chat_action(message.chat.id, "typing")
+    bot.reply_to(message, "¡Hola! Soy Gamma Academy, un bot IA. Envie un archivo o un video de Youtube y creare un quiz basado en su contenido.")
 
 archivos_pendientes = {}  # Estructura separada para no interferir con sesiones de quizzes en privado
 @bot.message_handler(content_types=['document'], chat_types=["group", "supergroup"])
