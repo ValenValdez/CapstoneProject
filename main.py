@@ -15,6 +15,8 @@ from PyPDF2 import PdfReader
 from docx import Document
 from pytubefix import YouTube
 import manejo_de_quizzes as mdq
+import datetime
+import pandas as pd
 
 load_dotenv()
 
@@ -309,8 +311,13 @@ def generar_quiz_con_groq(texto, nombre_documento):
     quiz_key = os.path.splitext(os.path.basename(ruta))[0].lower()
     try:
         manejador_quizzes.quizzes_cargados[quiz_key] = ruta
+
+        # Recarga el quiz recién creado
+        nuevo_quiz = mdq.Quiz(quiz_key, ruta)
+        manejador_quizzes.quizzes_cargados[quiz_key] = ruta
+
     except Exception as e:
-        print(f"⚠️ No se pudo registrar el quiz en el manejador: {e}")
+        print(f"No se pudo registrar o recargar el quiz en el manejador: {e}")
 
     print(f"\n✅ QUIZ GENERADO: {ruta}\n")
     return quiz_key
@@ -379,6 +386,64 @@ def procesar_avance_quiz(bot, chat_id, message, es_correcta: bool):
         bot.send_message(chat_id, "✅ Respuesta recibida. Siguiente pregunta:")
         enviar_siguiente_pregunta(bot, chat_id, siguiente_pregunta)
 
+
+# === GUARDAR RESULTADOS ===
+def guardar_resultado(quiz_name: str, user: tlb.types.User, pregunta: str, respuesta_usuario: str, correcta: str, resultado: str):
+    """Guarda el resultado del quiz en un archivo JSON."""
+    os.makedirs("resultados", exist_ok=True)
+    ruta = f"resultados/{quiz_name}.json"
+
+    registro = {
+        "usuario_id": user.id,
+        "usuario_nombre": user.full_name,
+        "pregunta": pregunta,
+        "respuesta_usuario": respuesta_usuario,
+        "respuesta_correcta": correcta,
+        "resultado": resultado,
+        "fecha": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
+
+    try:
+        data = []
+        if os.path.exists(ruta):
+            with open(ruta, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        data.append(registro)
+        with open(ruta, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        print(f"✅ Resultado guardado en {ruta}")
+    except Exception as e:
+        print(f"❌ Error al guardar resultado: {e}")
+
+
+# === EXPORTAR A EXCEL ===
+def exportar_resultados_a_excel():
+    """Convierte todos los archivos JSON de resultados en un solo Excel."""
+    try:
+        os.makedirs("resultados", exist_ok=True)
+        archivos = [f for f in os.listdir("resultados") if f.endswith(".json")]
+        if not archivos:
+            print("⚠️ No hay resultados para exportar.")
+            return None
+
+        all_data = []
+        for archivo in archivos:
+            ruta = os.path.join("resultados", archivo)
+            with open(ruta, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                all_data.extend(data)
+
+        df = pd.DataFrame(all_data)
+        ruta_excel = "resultados/resultados_totales.xlsx"
+        df.to_excel(ruta_excel, index=False)
+        print(f"📊 Resultados exportados a {ruta_excel}")
+        return ruta_excel
+    except Exception as e:
+        print(f"❌ Error al exportar a Excel: {e}")
+        return None
+
+
+#===========================HANDLERS DEL BOT===========================
 #FUNCIONAMIENTO EN PRIVADO
 @bot.message_handler(commands=['start'], chat_types=["private"])
 def send_welcome(message):
@@ -400,7 +465,7 @@ def empezar_quiz(message):
     primera_pregunta = manejador_quizzes.iniciar_quiz(chat_id, nombre_quiz)
 
     if primera_pregunta:
-        bot.send_message(chat_id, f"✅ **¡Quiz '{nombre_quiz}' iniciado!**")
+        bot.send_message(chat_id, f"✅ ¡Quiz '{nombre_quiz}' iniciado!")
         enviar_siguiente_pregunta(bot, chat_id, primera_pregunta)
     else:
         bot.reply_to(message, f"❌ No se pudo iniciar el quiz **'{nombre_quiz}'**. Revisa que el nombre sea correcto.")
@@ -497,7 +562,6 @@ def manejar_respuesta_imagen_quiz(message: tlb.types.Message):
     )
         evaluacion_texto = evaluacion.choices[0].message.content.strip().lower()
         es_correcta = "true" in evaluacion_texto
-
         feedback = "✅ ¡Correcto!" if es_correcta else "❌ Incorrecto."
         bot.reply_to(message, f"{feedback}\n\nDescripción de tu imagen: {descripcion}", parse_mode="Markdown")
         procesar_avance_quiz(bot, chat_id, message, es_correcta)
@@ -519,10 +583,33 @@ def manejar_respuesta_quiz(call):
     es_correcta = pregunta_actual.es_correcta(respuesta_usuario)
 
     feedback = "✅ ¡Correcto!" if es_correcta else "❌ Incorrecto."
+    explicacion = ""
+    if not es_correcta:
+        prompt_explicacion = f"""
+        El usuario respondió incorrectamente la siguiente pregunta de un quiz educativo.
+        Explica brevemente (en no más de 3 líneas) por qué la respuesta correcta es la adecuada,
+        de forma amable y pedagógica, en español neutro.
+
+        Pregunta: {pregunta_actual.pregunta}
+        Opciones: {pregunta_actual.opciones}
+        Respuesta correcta: {pregunta_actual.respuesta_correcta}
+        """
+        try:
+            explicacion_response = cliente_groq.chat.completions.create(
+                model="meta-llama/llama-4-scout-17b-16e-instruct",
+                messages=[{"role": "user", "content": prompt_explicacion}],
+                temperature=0.4,
+                max_tokens=100
+            )
+            explicacion = "\n\n💡 " + explicacion_response.choices[0].message.content.strip()
+        except Exception as e:
+            print(f"⚠️ Error al generar explicación: {e}")
+
+    # 📝 Mostramos todo junto
     try:
         texto_original = call.message.text
         opcion_elegida = respuesta_usuario.upper() 
-        texto_modificado = f"{texto_original}\n\n**Tu respuesta:** {opcion_elegida}\n\n{feedback}"
+        texto_modificado = f"{texto_original}\n\n**Tu respuesta:** {opcion_elegida}\n\n{feedback}{explicacion}"
         bot.edit_message_text(
             chat_id=chat_id,
             message_id=call.message.message_id,
@@ -587,54 +674,123 @@ Si algo no funciona, intenta enviar la imagen de nuevo."""
 @bot.message_handler(commands=['start'], chat_types=["group", "supergroup"])
 def send_welcome_group(message):
     bot.send_chat_action(message.chat.id, "typing")
-    bot.reply_to(message, "¡Hola! Soy Gamma Academy, un bot IA. Envie un archivo y creare un quiz basado en su contenido.")
+    bot.reply_to(message, "¡Hola! Soy Gamma Academy, un bot IA. Envie un archivo o un video de Youtube y creare un quiz basado en su contenido.")
 
+archivos_pendientes = {}  # Estructura separada para no interferir con sesiones de quizzes en privado
 @bot.message_handler(content_types=['document'], chat_types=["group", "supergroup"])
 def handle_document(message):
-    bot.reply_to(message, f"Recibí tu archivo: {message.document.file_name}, voy a crear un quiz basado en su contenido. ⏳")
-    file_info = bot.get_file(message.document.file_id)
-    downloaded_file = bot.download_file(file_info.file_path)
+    """Recibe un archivo en grupo y pide el nombre del quiz."""
+    chat_id = message.chat.id
     file_name = message.document.file_name
 
-    file_path = f"temp/{file_name}"
+    bot.reply_to(
+        message,
+        f"📄 Recibí tu archivo: *{file_name}*.\n\nPor favor, respondé con el nombre que querés para el quiz.",
+        parse_mode='Markdown'
+    )
+
+    file_info = bot.get_file(message.document.file_id)
+    downloaded_file = bot.download_file(file_info.file_path)
     os.makedirs("temp", exist_ok=True)
-    with open(file_path, 'wb') as f:
+    temp_path = f"temp/{file_name}"
+    with open(temp_path, 'wb') as f:
         f.write(downloaded_file)
 
-    texto = extraer_texto_de_documento(downloaded_file, file_name)
+    # Guardar estado del chat
+    archivos_pendientes[chat_id] = {
+        "tipo": "documento",
+        "archivo": temp_path,
+        "esperando_nombre": True
+    }
 
-    quiz = generar_quiz_con_groq(texto, file_name)
-    
+
+@bot.message_handler(func=lambda m: bool(re.search(r'http[s]?://', m.text or '')), chat_types=["group", "supergroup"])
+def handle_youtube_link(message):
+    """Recibe un link de YouTube y pide el nombre del quiz."""
+    chat_id = message.chat.id
+    link = message.text.strip()
+
+    bot.reply_to(
+        message,
+        f"🎥 Recibí tu link de YouTube:\n{link}\n\nPor favor, respondé con el nombre que querés para el quiz.",
+        parse_mode='Markdown'
+    )
+
+    # Guardar estado del chat
+    archivos_pendientes[chat_id] = {
+        "tipo": "youtube",
+        "link": link,
+        "esperando_nombre": True
+    }
+
+@bot.message_handler(func=lambda m: m.chat.type in ["group", "supergroup"])
+def recibir_nombre_quiz(message):
+    """Recibe el nombre elegido por el usuario y genera el quiz."""
+    chat_id = message.chat.id
+    sesion = archivos_pendientes.get(chat_id)
+
+    if not sesion or not sesion.get("esperando_nombre"):
+        return  # si no está esperando nombre, no hace nada
+
+    nombre_quiz = message.text.strip().replace(" ", "_")
+    bot.send_message(
+        chat_id,
+        f"✏️ Nombre elegido: *{nombre_quiz}*\n\nGenerando el quiz... ⏳",
+        parse_mode='Markdown'
+    )
+
     try:
-        os.remove(file_path)
-        print(f"🧹 Archivo temporal eliminado: {file_path}")
+        tipo = sesion["tipo"]
+
+        if tipo == "documento":
+            temp_path = sesion["archivo"]
+            texto = extraer_texto_de_documento(open(temp_path, "rb").read(), os.path.basename(temp_path))
+
+            if not texto.strip():
+                bot.send_message(chat_id, "⚠️ No se pudo extraer texto del documento.")
+                return
+
+            quiz_key = generar_quiz_con_groq(texto, nombre_quiz)
+            os.remove(temp_path)
+
+        elif tipo == "youtube":
+            link = sesion["link"]
+            audio_file = download_audio_from_youtube(link)
+            if not audio_file:
+                bot.send_message(chat_id, "❌ No se pudo descargar el audio de YouTube.")
+                return
+
+            text = transcribe_with_groq(audio_file)
+            if not text or not text.strip():
+                bot.send_message(chat_id, "❌ No se pudo transcribir el audio.")
+                return
+
+            quiz_key = generar_quiz_con_groq(text, nombre_quiz)
+
+            if os.path.exists(audio_file):
+                os.remove(audio_file)
+
+        # Limpiar estado
+        archivos_pendientes.pop(chat_id, None)
+        bot.send_message(
+            chat_id,
+            f"✅ ¡Quiz *{nombre_quiz}* generado!\n\nEnvienme al privado el comando:\n\n`/empezar {quiz_key}`",
+            parse_mode='Markdown'
+        )
+
     except Exception as e:
-        print(f"⚠️ No se pudo eliminar {file_path}: {e}")
+        print(f"Error al generar el quiz: {e}")
+        bot.send_message(chat_id, f"❌ Ocurrió un error al generar el quiz: {e}")
 
-    bot.reply_to(message, f"✅ ¡Quiz generado!. Envienme al privado el comando /empezar {quiz}.")
-
-@bot.message_handler(func=lambda message: bool(re.search(r'http[s]?://', message.text or '')), chat_types=["group", "supergroup"])
-def handle_link(message):
-    bot.reply_to(message, f"Veo que enviaste un link: {message.text}, voy a crear un quiz basado en su contenido. ⏳")
-    audio_file = download_audio_from_youtube(message.text)
-    if not audio_file:
-        return print("No se pudo descargar el audio.")
-
-    text = transcribe_with_groq(audio_file)
-    if not text:
-        bot.reply_to(message, "❌ No pude transcribir el audio.")
-        return
-    file_name = os.path.basename(audio_file)
-    quiz = generar_quiz_con_groq(text, file_name)
-    try:
-        if os.path.exists(audio_file):
-            os.remove(audio_file)
-            print(f"🧹 Archivo temporal eliminado: {audio_file}")
-    except Exception as e:
-        print(f"⚠️ No se pudo eliminar {audio_file}: {e}")
-
-    bot.reply_to(message, f"✅ ¡Quiz generado!. Envienme al privado el comando /empezar {quiz}.")
-
+# === COMANDO PARA EXPORTAR ===
+@bot.message_handler(commands=['exportar'], chat_types=["group", "supergroup"])
+def exportar_resultados(message):
+    ruta_excel = exportar_resultados_a_excel()
+    if ruta_excel and os.path.exists(ruta_excel):
+        with open(ruta_excel, "rb") as f:
+            bot.send_document(message.chat.id, f, visible_file_name="resultados_totales.xlsx")
+    else:
+        bot.reply_to(message, "⚠️ No hay resultados para exportar aún.")
 
 # Punto de entrada principal del script
 if __name__ == "__main__":
