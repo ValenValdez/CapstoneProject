@@ -25,6 +25,17 @@ CLAVE_API_GROQ = os.getenv('GROQ_API_KEY')
 DATASET_PATH = os.getenv('DATASET_PATH')
 manejador_quizzes = mdq.ManejadorQuizzes()
 
+try:
+    print("Cargando el modelo de análisis de sentimiento...")
+    analizador_sentimiento = pipeline(
+        "sentiment-analysis",
+        model="nlptown/bert-base-multilingual-uncased-sentiment" 
+    )
+    print("✅ Modelo de sentimiento cargado con éxito.")
+except Exception as e:
+    print(f"❌ Error al cargar el modelo de sentimiento: {e}. Se desactivará el análisis de feedback.")
+    analizador_sentimiento = None # Usamos None para manejar fallas
+
 if not TOKEN_BOT_TELEGRAM:
     raise ValueError("TELEGRAM_BOT_TOKEN no está configurado en las variables de entorno")
 
@@ -390,8 +401,6 @@ def procesar_avance_quiz(bot, chat_id, message_or_call_message, user: tlb.types.
             guardar_resultado(nombre_quiz, user, puntaje, total)
         except Exception as e:
             print(f"⚠️ Error al llamar a guardar_resultado: {e}")
-        # ============================================
-
         mensaje_final = f"🎉 **¡Quiz finalizado!** 🎉\n\nTu puntaje final es: **{puntaje} de {total}**."
         
         # Distinguimos si responder a un mensaje (reply) o enviar uno nuevo (si era botón)
@@ -399,7 +408,10 @@ def procesar_avance_quiz(bot, chat_id, message_or_call_message, user: tlb.types.
             bot.reply_to(message_or_call_message, mensaje_final, parse_mode='Markdown')
         else:
             bot.send_message(chat_id, mensaje_final, parse_mode='Markdown')
+        msg = bot.send_message(chat_id, "¿Qué opinas del bot? Tu feedback es valioso para mejorar.")
         
+        # 2. Registrar el handler para la siguiente respuesta del usuario
+        bot.register_next_step_handler(msg, manejar_feedback_final)
         return
     
     else:
@@ -407,6 +419,55 @@ def procesar_avance_quiz(bot, chat_id, message_or_call_message, user: tlb.types.
         bot.send_message(chat_id, "✅ Respuesta recibida. Siguiente pregunta:")
         enviar_siguiente_pregunta(bot, chat_id, siguiente_pregunta)
 
+def manejar_feedback_final(message):
+    chat_id = message.chat.id
+    feedback_texto = message.text.strip()
+    user = message.from_user
+    
+    bot.send_chat_action(chat_id, "typing")
+    
+    if not analizador_sentimiento:
+        bot.send_message(chat_id, "¡Gracias por tu feedback! Lamentablemente, la función de análisis de sentimiento está desactivada.")
+        return
+        
+    try:
+        resultado = analizador_sentimiento([feedback_texto])[0]
+        sentimiento_raw = resultado['label']
+        confianza = resultado['score']
+
+        emoji = "😐"
+        sentimiento_formal = "NEUTRAL"
+        
+        if sentimiento_raw == '5 stars':
+            emoji = "😊"
+            sentimiento_formal = "MUY POSITIVO"
+        elif sentimiento_raw == '4 stars':
+            emoji = "🙂"
+            sentimiento_formal = "POSITIVO"
+        elif sentimiento_raw == '3 stars':
+            emoji = "😐"
+            sentimiento_formal = "NEUTRAL"
+        elif sentimiento_raw == '2 stars':
+            emoji = "😟"
+            sentimiento_formal = "NEGATIVO"
+        elif sentimiento_raw == '1 star':
+            emoji = "😠"
+            sentimiento_formal = "MUY NEGATIVO"
+
+        mensaje_respuesta = (
+            f"¡Gracias por tu feedback, **{user.first_name}**! Lo valoramos mucho.\n\n"
+            f"Hemos clasificado tu opinión como **{sentimiento_formal}** {emoji} "
+            f"(Confianza: {confianza:.2%})."
+        )
+        
+        # Opcional: Imprimir en consola para ver la data
+        print(f"✅ Feedback de {user.full_name}: '{feedback_texto}' -> {sentimiento_formal}")
+
+    except Exception as e:
+        mensaje_respuesta = "Gracias por tu feedback. Ocurrió un error al procesar el análisis de sentimiento."
+        print(f"❌ Error durante el análisis de sentimiento: {e}")
+
+    bot.send_message(chat_id, mensaje_respuesta, parse_mode='Markdown')
 
 # === GUARDAR RESULTADOS ===
 def guardar_resultado(quiz_name: str, user: tlb.types.User, puntaje_final: int, total_preguntas: int):
