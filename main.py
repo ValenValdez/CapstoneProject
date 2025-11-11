@@ -15,6 +15,9 @@ from PyPDF2 import PdfReader
 from docx import Document
 from pytubefix import YouTube
 import manejo_de_quizzes as mdq
+from telebot.types import Message
+import datetime
+import pandas as pd
 
 load_dotenv()
 
@@ -22,6 +25,7 @@ TOKEN_BOT_TELEGRAM = os.getenv('TELEGRAM_BOT_TOKEN')
 CLAVE_API_GROQ = os.getenv('GROQ_API_KEY')
 DATASET_PATH = os.getenv('DATASET_PATH')
 manejador_quizzes = mdq.ManejadorQuizzes()
+
 
 if not TOKEN_BOT_TELEGRAM:
     raise ValueError("TELEGRAM_BOT_TOKEN no está configurado en las variables de entorno")
@@ -393,8 +397,10 @@ def empezar_quiz(message):
 
     nombre_quiz = partes[1].strip()
     primera_pregunta = manejador_quizzes.iniciar_quiz(chat_id, nombre_quiz)
+    manejador_quizzes.sesiones_activas[chat_id]["quiz_name"] = nombre_quiz
 
     if primera_pregunta:
+
         bot.send_message(chat_id, f"✅ **¡Quiz '{nombre_quiz}' iniciado!**")
         enviar_siguiente_pregunta(bot, chat_id, primera_pregunta)
     else:
@@ -406,11 +412,10 @@ def manejar_respuesta_voz_quiz(message: tlb.types.Message):
     tipo_esperado = manejador_quizzes.obtener_tipo_esperado(chat_id)
 
     if tipo_esperado == 'voice':
-        bot.send_chat_action(chat_id, "typing")
-        es_correcta = True #HAY QUE VERIFICAR ESTO
-        procesar_avance_quiz(bot, chat_id, message, es_correcta)
-        return
-    pass
+    bot.send_chat_action(chat_id, "typing")
+    evaluar_y_guardar_respuesta(message, "voice", None)
+    return
+    
 
 @bot.message_handler(content_types=['photo'], chat_types=["private"])
 def manejar_respuesta_imagen_quiz(message: tlb.types.Message):
@@ -418,11 +423,9 @@ def manejar_respuesta_imagen_quiz(message: tlb.types.Message):
     tipo_esperado = manejador_quizzes.obtener_tipo_esperado(chat_id)
 
     if tipo_esperado == 'photo':
-        bot.send_chat_action(chat_id, "typing")
-        es_correcta = True #HAY QUE VERIFICAR ESTO
-        procesar_avance_quiz(bot, chat_id, message, es_correcta)
-        return
-    pass
+    bot.send_chat_action(chat_id, "typing")
+    evaluar_y_guardar_respuesta(message, "photo", None)
+    return
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('quiz_ans'))
 def manejar_respuesta_quiz(call):
@@ -455,6 +458,14 @@ def manejar_respuesta_quiz(call):
 
     bot.answer_callback_query(call.id, feedback)
     procesar_avance_quiz(bot, chat_id, call.message, es_correcta)
+    guardar_resultado(
+    sesion["quiz_name"],
+    call.from_user,
+    pregunta_actual.pregunta,
+    respuesta_usuario,
+    pregunta_actual.respuesta_correcta,
+    "Correcta" if es_correcta else "Incorrecta"
+)
 
 # @bot.message_handler(content_types=['voice'], chat_types=["private"])
 # def handle_voice_message(message: tlb.types.Message):
@@ -600,3 +611,147 @@ if __name__ == "__main__":
             print(f"Error en el bot: {str(e)}")
             print("Reiniciando el bot...")
             time.sleep(5)  # Espera antes de reintentar
+
+
+# === EVALUACIÓN DE RESPUESTAS CON GROQ ===
+def evaluar_respuesta_con_groq(pregunta: str, respuesta_usuario: str, respuesta_correcta: str) -> str:
+    """
+    Envía la pregunta, la respuesta del usuario y la correcta a Groq.
+    Retorna "Sí" o "No" según si la respuesta es correcta.
+    """
+    try:
+        prompt = f"""
+        Evalúa si la siguiente respuesta del usuario responde correctamente a la pregunta dada.
+        Responde SOLO con "Sí" o "No".
+
+        Pregunta: {pregunta}
+        Respuesta correcta esperada: {respuesta_correcta}
+        Respuesta del usuario: {respuesta_usuario}
+        """
+        chat_completion = cliente_groq.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            max_tokens=5
+        )
+        return chat_completion.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"Error al evaluar respuesta con Groq: {e}")
+        return "Error"
+
+
+# === GUARDAR RESULTADOS ===
+def guardar_resultado(quiz_name: str, user: tlb.types.User, pregunta: str, respuesta_usuario: str, correcta: str, resultado: str):
+    """Guarda el resultado del quiz en un archivo JSON."""
+    os.makedirs("resultados", exist_ok=True)
+    ruta = f"resultados/{quiz_name}.json"
+
+    registro = {
+        "usuario_id": user.id,
+        "usuario_nombre": user.full_name,
+        "pregunta": pregunta,
+        "respuesta_usuario": respuesta_usuario,
+        "respuesta_correcta": correcta,
+        "resultado": resultado,
+        "fecha": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
+
+    try:
+        data = []
+        if os.path.exists(ruta):
+            with open(ruta, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        data.append(registro)
+        with open(ruta, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        print(f"✅ Resultado guardado en {ruta}")
+    except Exception as e:
+        print(f"❌ Error al guardar resultado: {e}")
+
+
+# === EXPORTAR A EXCEL ===
+def exportar_resultados_a_excel():
+    """Convierte todos los archivos JSON de resultados en un solo Excel."""
+    try:
+        os.makedirs("resultados", exist_ok=True)
+        archivos = [f for f in os.listdir("resultados") if f.endswith(".json")]
+        if not archivos:
+            print("⚠️ No hay resultados para exportar.")
+            return None
+
+        all_data = []
+        for archivo in archivos:
+            ruta = os.path.join("resultados", archivo)
+            with open(ruta, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                all_data.extend(data)
+
+        df = pd.DataFrame(all_data)
+        ruta_excel = "resultados/resultados_totales.xlsx"
+        df.to_excel(ruta_excel, index=False)
+        print(f"📊 Resultados exportados a {ruta_excel}")
+        return ruta_excel
+    except Exception as e:
+        print(f"❌ Error al exportar a Excel: {e}")
+        return None
+
+
+# === COMANDO PARA EXPORTAR ===
+@bot.message_handler(commands=['exportar'], chat_types=["private"])
+def exportar_resultados(message):
+    ruta_excel = exportar_resultados_a_excel()
+    if ruta_excel and os.path.exists(ruta_excel):
+        with open(ruta_excel, "rb") as f:
+            bot.send_document(message.chat.id, f, visible_file_name="resultados_totales.xlsx")
+    else:
+        bot.reply_to(message, "⚠️ No hay resultados para exportar aún.")
+
+
+# === MANEJO DE RESPUESTAS DE QUIZ (TEXT, VOICE, PHOTO) ===
+def evaluar_y_guardar_respuesta(message, tipo_respuesta: str, contenido):
+    """Evalúa una respuesta (texto, voz o imagen) con Groq y guarda el resultado."""
+    chat_id = message.chat.id
+    sesion = manejador_quizzes.sesiones_activas.get(chat_id)
+    if not sesion:
+        bot.reply_to(message, "⚠️ No hay un quiz activo.")
+        return
+
+    quiz_actual = sesion['quiz']
+    pregunta_actual = quiz_actual.get_pregunta(sesion['indice_actual'])
+    pregunta = pregunta_actual.pregunta
+    correcta = pregunta_actual.respuesta_correcta
+
+    # Si es audio, transcribir
+    if tipo_respuesta == "voice":
+        contenido = trascribe_voice_with_groq(message)
+        if not contenido:
+            bot.reply_to(message, "❌ No pude transcribir tu audio.")
+            return
+
+    # Si es imagen, describir
+    if tipo_respuesta == "photo":
+        file_info = bot.get_file(message.photo[-1].file_id)
+        downloaded_file = bot.download_file(file_info.file_path)
+        imagen_base64 = imagen_a_base64(downloaded_file)
+        contenido = describir_imagen_con_groq(imagen_base64)
+
+    resultado = evaluar_respuesta_con_groq(pregunta, contenido, correcta)
+
+    if resultado.lower().startswith("sí"):
+        feedback = "✅ ¡Correcto!"
+        es_correcta = True
+        estado = "Correcta"
+    elif resultado.lower().startswith("no"):
+        feedback = "❌ Incorrecto."
+        es_correcta = False
+        estado = "Incorrecta"
+    else:
+        feedback = "⚠️ No pude evaluar tu respuesta."
+        es_correcta = False
+        estado = "No evaluada"
+
+    bot.reply_to(message, feedback)
+    guardar_resultado(sesion["quiz_name"], message.from_user, pregunta, contenido, correcta, estado)
+    procesar_avance_quiz(bot, chat_id, message, es_correcta)
+
+
