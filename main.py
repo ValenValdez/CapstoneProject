@@ -412,9 +412,9 @@ def manejar_respuesta_voz_quiz(message: tlb.types.Message):
     tipo_esperado = manejador_quizzes.obtener_tipo_esperado(chat_id)
 
     if tipo_esperado == 'voice':
-    bot.send_chat_action(chat_id, "typing")
-    evaluar_y_guardar_respuesta(message, "voice", None)
-    return
+        bot.send_chat_action(chat_id, "typing")
+        evaluar_y_guardar_respuesta(message, "voice", None)
+        return
     
 
 @bot.message_handler(content_types=['photo'], chat_types=["private"])
@@ -423,9 +423,9 @@ def manejar_respuesta_imagen_quiz(message: tlb.types.Message):
     tipo_esperado = manejador_quizzes.obtener_tipo_esperado(chat_id)
 
     if tipo_esperado == 'photo':
-    bot.send_chat_action(chat_id, "typing")
-    evaluar_y_guardar_respuesta(message, "photo", None)
-    return
+        bot.send_chat_action(chat_id, "typing")
+        evaluar_y_guardar_respuesta(message, "photo", None)
+        return
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('quiz_ans'))
 def manejar_respuesta_quiz(call):
@@ -554,29 +554,59 @@ def send_welcome_group(message):
     bot.send_chat_action(message.chat.id, "typing")
     bot.reply_to(message, "¡Hola! Soy Gamma Academy, un bot IA. Envie un archivo y creare un quiz basado en su contenido.")
 
+#Recibir documento en grupo/supergrupo
 @bot.message_handler(content_types=['document'], chat_types=["group", "supergroup"])
 def handle_document(message):
-    bot.reply_to(message, f"Recibí tu archivo: {message.document.file_name}, voy a crear un quiz basado en su contenido. ⏳")
-    file_info = bot.get_file(message.document.file_id)
-    downloaded_file = bot.download_file(file_info.file_path)
+    chat_id = message.chat.id
     file_name = message.document.file_name
 
-    file_path = f"temp/{file_name}"
+    bot.reply_to(
+        message,
+        f"📄 Recibí tu archivo: *{file_name}*.\n\nPor favor, respondé con el nombre que querés para el quiz.",
+        parse_mode='Markdown'
+    )
+
+    # Guardamos temporalmente el archivo y el estado
+
+    file_info = bot.get_file(message.document.file_id)
+    downloaded_file = bot.download_file(file_info.file_path)
     os.makedirs("temp", exist_ok=True)
-    with open(file_path, 'wb') as f:
+    temp_path = f"temp/{file_name}"
+    with open(temp_path, 'wb') as f:
         f.write(downloaded_file)
 
-    texto = extraer_texto_de_documento(downloaded_file, file_name)
+    # Guardamos el estado del chat
+    manejador_quizzes.sesiones_activas[chat_id] = {"archivo": temp_path, "esperando_nombre": True}
 
-    quiz = generar_quiz_con_groq(texto, file_name)
-    
-    try:
-        os.remove(file_path)
-        print(f"🧹 Archivo temporal eliminado: {file_path}")
-    except Exception as e:
-        print(f"⚠️ No se pudo eliminar {file_path}: {e}")
 
-    bot.reply_to(message, f"✅ ¡Quiz generado!. Envienme al privado el comando /empezar {quiz}.")
+#Recibir nombre del quiz y generarlo
+
+@bot.message_handler(func=lambda m: m.chat.type in ["group", "supergroup"])
+def recibir_nombre_quiz(message):
+    chat_id = message.chat.id
+    sesion = manejador_quizzes.sesiones_activas.get(chat_id)
+
+    if sesion and sesion.get("esperando_nombre"):
+        nombre_quiz = message.text.strip().replace(" ", "_")
+        temp_path = sesion["archivo"]
+
+        bot.send_message(
+            chat_id,
+            f"✏️ Nombre elegido: *{nombre_quiz}*\n\nGenerando el quiz... ⏳",
+            parse_mode='Markdown'
+        )
+
+        texto = extraer_texto_de_documento(open(temp_path, "rb").read(), os.path.basename(temp_path))
+        quiz_key = generar_quiz_con_groq(texto, f"{nombre_quiz}.json")
+
+        os.remove(temp_path)
+        sesion["esperando_nombre"] = False
+
+        bot.send_message(
+            chat_id,
+            f"✅ ¡Quiz *{nombre_quiz}* generado! Envienme al privado el comando:\n\n`/empezar {quiz_key}`",
+            parse_mode='Markdown'
+        )
 
 @bot.message_handler(func=lambda message: bool(re.search(r'http[s]?://', message.text or '')), chat_types=["group", "supergroup"])
 def handle_link(message):
