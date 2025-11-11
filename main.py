@@ -375,31 +375,51 @@ def enviar_siguiente_pregunta(bot, chat_id: int, pregunta: mdq.Pregunta):
         # Solo enviamos el mensaje de instrucciones.
         bot.send_message(chat_id, mensaje, parse_mode='Markdown')
 
-def procesar_avance_quiz(bot, chat_id, message, es_correcta: bool):
+def procesar_avance_quiz(bot, chat_id, message_or_call_message, user: tlb.types.User, es_correcta: bool):
+    nombre_quiz = "desconocido"
+    sesion_previa = manejador_quizzes.sesiones_activas.get(chat_id)
+    if sesion_previa:
+        nombre_quiz = sesion_previa['quiz'].nombre
     siguiente_pregunta, es_fin_de_quiz, estado_final = manejador_quizzes.avanzar_pregunta(chat_id, es_correcta)
 
     if es_fin_de_quiz:
-        mensaje_final = f"🎉 **¡Quiz finalizado!** 🎉\n\nTu puntaje final es: **{estado_final['puntaje']} de {estado_final['total']}**."
-        bot.reply_to(message, mensaje_final, parse_mode='Markdown')
+        puntaje = estado_final['puntaje']
+        total = estado_final['total']
+        
+        try:
+            guardar_resultado(nombre_quiz, user, puntaje, total)
+        except Exception as e:
+            print(f"⚠️ Error al llamar a guardar_resultado: {e}")
+        # ============================================
+
+        mensaje_final = f"🎉 **¡Quiz finalizado!** 🎉\n\nTu puntaje final es: **{puntaje} de {total}**."
+        
+        # Distinguimos si responder a un mensaje (reply) o enviar uno nuevo (si era botón)
+        if hasattr(message_or_call_message, 'reply_to_message'):
+            bot.reply_to(message_or_call_message, mensaje_final, parse_mode='Markdown')
+        else:
+            bot.send_message(chat_id, mensaje_final, parse_mode='Markdown')
+        
         return
+    
     else:
+        # Si no terminó, mandamos la siguiente
         bot.send_message(chat_id, "✅ Respuesta recibida. Siguiente pregunta:")
         enviar_siguiente_pregunta(bot, chat_id, siguiente_pregunta)
 
 
 # === GUARDAR RESULTADOS ===
-def guardar_resultado(quiz_name: str, user: tlb.types.User, pregunta: str, respuesta_usuario: str, correcta: str, resultado: str):
-    """Guarda el resultado del quiz en un archivo JSON."""
+def guardar_resultado(quiz_name: str, user: tlb.types.User, puntaje_final: int, total_preguntas: int):
+    """Guarda el resultado FINAL del quiz en un archivo JSON."""
     os.makedirs("resultados", exist_ok=True)
-    ruta = f"resultados/{quiz_name}.json"
+    ruta = "resultados/resultados_finales.json" 
 
     registro = {
         "usuario_id": user.id,
         "usuario_nombre": user.full_name,
-        "pregunta": pregunta,
-        "respuesta_usuario": respuesta_usuario,
-        "respuesta_correcta": correcta,
-        "resultado": resultado,
+        "quiz_nombre": quiz_name,
+        "puntaje": puntaje_final,
+        "total_preguntas": total_preguntas,
         "fecha": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
 
@@ -411,37 +431,45 @@ def guardar_resultado(quiz_name: str, user: tlb.types.User, pregunta: str, respu
         data.append(registro)
         with open(ruta, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
-        print(f"✅ Resultado guardado en {ruta}")
+            
+        print(f"✅ Resultado FINAL guardado en {ruta}")
     except Exception as e:
-        print(f"❌ Error al guardar resultado: {e}")
+        print(f"❌ Error al guardar resultado final: {e}")
 
 
 # === EXPORTAR A EXCEL ===
-def exportar_resultados_a_excel():
-    """Convierte todos los archivos JSON de resultados en un solo Excel."""
+def exportar_resultados_a_excel(quiz_name: str):
+    """Convierte el archivo JSON de resultados finales, filtrando por el nombre del quiz."""
     try:
-        os.makedirs("resultados", exist_ok=True)
-        archivos = [f for f in os.listdir("resultados") if f.endswith(".json")]
-        if not archivos:
-            print("⚠️ No hay resultados para exportar.")
+        ruta_json = "resultados/resultados_finales.json"
+        
+        if not os.path.exists(ruta_json):
+            print("⚠️ No hay archivo de resultados generales para exportar.")
             return None
 
-        all_data = []
-        for archivo in archivos:
-            ruta = os.path.join("resultados", archivo)
-            with open(ruta, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                all_data.extend(data)
+        df_general = pd.read_json(ruta_json)
+        
+        if df_general.empty:
+            print("⚠️ El archivo de resultados está vacío.")
+            return None
+        df_filtrado = df_general[df_general['quiz_nombre'] == quiz_name]
+        
+        if df_filtrado.empty:
+            print(f"⚠️ No se encontraron resultados para el quiz: {quiz_name}")
+            return None
 
-        df = pd.DataFrame(all_data)
-        ruta_excel = "resultados/resultados_totales.xlsx"
-        df.to_excel(ruta_excel, index=False)
-        print(f"📊 Resultados exportados a {ruta_excel}")
+        os.makedirs("resultados", exist_ok=True) 
+        
+        # El nombre del archivo de salida incluye el nombre del quiz
+        ruta_excel = f"resultados/resultados_{quiz_name}.xlsx"
+        df_filtrado.to_excel(ruta_excel, index=False)
+        
+        print(f"📊 Resultados exportados para '{quiz_name}' en {ruta_excel}")
         return ruta_excel
+        
     except Exception as e:
         print(f"❌ Error al exportar a Excel: {e}")
         return None
-
 
 #===========================HANDLERS DEL BOT===========================
 #FUNCIONAMIENTO EN PRIVADO
@@ -518,7 +546,7 @@ def manejar_respuesta_voz_quiz(message: tlb.types.Message):
 
         feedback = "✅ ¡Correcto!" if es_correcta else "❌ Incorrecto."
         bot.reply_to(message, f"{feedback}\n\n Tu respuesta: _{transcription}_\n💬 {razon}", parse_mode="Markdown")
-        procesar_avance_quiz(bot, chat_id, message, es_correcta)
+        procesar_avance_quiz(bot, chat_id, message, message.from_user, es_correcta)
         return
     pass
 
@@ -546,8 +574,9 @@ def manejar_respuesta_imagen_quiz(message: tlb.types.Message):
         pregunta_actual = quiz_actual.get_pregunta(sesion['indice_actual'])
 
         prompt = f"""
+        INSTRUCCIÓN CLAVE: Responde ÚNICAMENTE con la palabra 'True' o con la palabra 'False'. No agregues comillas, explicación, saludos, puntuación ni ningún texto adicional.
+
         Evalúa si la imagen del usuario (descrita abajo) cumple correctamente la consigna.
-        Responde SOLO con "True" o "False".
 
         Pregunta: {pregunta_actual.pregunta}
         Respuesta esperada: {pregunta_actual.respuesta_correcta}
@@ -557,14 +586,14 @@ def manejar_respuesta_imagen_quiz(message: tlb.types.Message):
         evaluacion = cliente_groq.chat.completions.create(
         model="llama-3.3-70b-versatile",
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.0,
-        max_tokens=3
+        temperature=0.0, # Usar temperatura baja ayuda a la estrictez
+        max_tokens=5 # Aseguramos que solo dé una palabra
     )
         evaluacion_texto = evaluacion.choices[0].message.content.strip().lower()
         es_correcta = "true" in evaluacion_texto
         feedback = "✅ ¡Correcto!" if es_correcta else "❌ Incorrecto."
         bot.reply_to(message, f"{feedback}\n\nDescripción de tu imagen: {descripcion}", parse_mode="Markdown")
-        procesar_avance_quiz(bot, chat_id, message, es_correcta)
+        procesar_avance_quiz(bot, chat_id, message, message.from_user, es_correcta)
         return
     pass
 
@@ -605,7 +634,6 @@ def manejar_respuesta_quiz(call):
         except Exception as e:
             print(f"⚠️ Error al generar explicación: {e}")
 
-    # 📝 Mostramos todo junto
     try:
         texto_original = call.message.text
         opcion_elegida = respuesta_usuario.upper() 
@@ -621,7 +649,7 @@ def manejar_respuesta_quiz(call):
         print(f"Error al editar mensaje de callback: {e}")
 
     bot.answer_callback_query(call.id, feedback)
-    procesar_avance_quiz(bot, chat_id, call.message, es_correcta)
+    procesar_avance_quiz(bot, chat_id, call.message, call.from_user, es_correcta)
 
 @bot.message_handler(commands=['help'], chat_types=["private"])
 def enviar_ayuda(message):
@@ -675,6 +703,29 @@ Si algo no funciona, intenta enviar la imagen de nuevo."""
 def send_welcome_group(message):
     bot.send_chat_action(message.chat.id, "typing")
     bot.reply_to(message, "¡Hola! Soy Gamma Academy, un bot IA. Envie un archivo o un video de Youtube y creare un quiz basado en su contenido.")
+
+# === COMANDO PARA EXPORTAR (Funciona en publico y en privado) ===
+@bot.message_handler(commands=['exportar'])
+def exportar_resultados(message):
+    bot.send_chat_action(message.chat.id, "typing")
+    partes = message.text.split(maxsplit=1) 
+    if len(partes) < 2:
+        bot.reply_to(message, "⚠️ Falta el nombre del quiz. Usa: `/exportar nombre_del_quiz`")
+        return
+
+    nombre_quiz_a_exportar = partes[1].strip()
+    ruta_excel = exportar_resultados_a_excel(nombre_quiz_a_exportar)
+    if ruta_excel and os.path.exists(ruta_excel):
+        with open(ruta_excel, "rb") as f:
+            nombre_archivo = f"resultados_{nombre_quiz_a_exportar}.xlsx"
+            bot.send_document(message.chat.id, f, visible_file_name=nombre_archivo)
+        try:
+            os.remove(ruta_excel)
+            print(f"🗑️ Archivo temporal borrado: {ruta_excel}")
+        except Exception as e:
+            print(f"❌ Error al borrar el archivo {ruta_excel}: {e}")
+    else:
+        bot.reply_to(message, f"⚠️ No hay resultados para el quiz \"{nombre_quiz_a_exportar}\" o el archivo no pudo ser creado.")
 
 archivos_pendientes = {}  # Estructura separada para no interferir con sesiones de quizzes en privado
 @bot.message_handler(content_types=['document'], chat_types=["group", "supergroup"])
@@ -777,20 +828,16 @@ def recibir_nombre_quiz(message):
             f"✅ ¡Quiz *{nombre_quiz}* generado!\n\nEnvienme al privado el comando:\n\n`/empezar {quiz_key}`",
             parse_mode='Markdown'
         )
+        bot.send_message(
+            chat_id,
+            f"💡 Cuando se desee exportar los resultados del quiz escriba el comando\n\n`/exportar {quiz_key}`",
+            parse_mode='Markdown'
+        )
 
     except Exception as e:
         print(f"Error al generar el quiz: {e}")
         bot.send_message(chat_id, f"❌ Ocurrió un error al generar el quiz: {e}")
 
-# === COMANDO PARA EXPORTAR ===
-@bot.message_handler(commands=['exportar'], chat_types=["group", "supergroup"])
-def exportar_resultados(message):
-    ruta_excel = exportar_resultados_a_excel()
-    if ruta_excel and os.path.exists(ruta_excel):
-        with open(ruta_excel, "rb") as f:
-            bot.send_document(message.chat.id, f, visible_file_name="resultados_totales.xlsx")
-    else:
-        bot.reply_to(message, "⚠️ No hay resultados para exportar aún.")
 
 # Punto de entrada principal del script
 if __name__ == "__main__":
