@@ -252,13 +252,35 @@ def generar_quiz_con_groq(texto, nombre_documento):
         contador += 1
 
     prompt = f"""
-    Generá un quiz de 5 preguntas de opción múltiple basadas en el siguiente texto.
-    Incluí una respuesta correcta y 3 opciones incorrectas por pregunta.
-    El quiz debe estar en formato JSON, con la siguiente estructura:
-    [{{"pregunta": "¿Qué cursos están disponibles?", "opciones": ["Curso A", "Curso B", "Curso C", "Curso D"], "respuesta_correcta": "a"}}]
-    No incluyas explicaciones, texto adicional ni comillas triples, solo el JSON plano.
-    Es importante que la respuesta correcta sea una letra (a, b, c, d) correspondiente a la opción correcta. 
-    
+    Generá un quiz de 5 preguntas basadas en el siguiente texto.
+
+    Cada pregunta debe ser de uno de los siguientes tipos:
+    - "text": pregunta de opción múltiple con cuatro opciones (a, b, c, d) y una respuesta correcta.
+    - "photo": pregunta que requiera que el usuario envíe una imagen como respuesta (por ejemplo, "Envía una foto que muestre...").
+    - "voice": pregunta que requiera una respuesta hablada (por ejemplo, "Explica brevemente...").
+
+    Formato del JSON:
+    [
+    {{
+        "pregunta": "¿Qué cursos están disponibles?",
+        "opciones": ["Curso A", "Curso B", "Curso C", "Curso D"],
+        "respuesta_correcta": "a",
+        "tipo_respuesta": "text"
+    }},
+    {{
+        "pregunta": "Muestra un ejemplo de una escena de trabajo en equipo.",
+        "opciones": [],
+        "respuesta_correcta": "",
+        "tipo_respuesta": "photo"
+    }}
+    ]
+
+    Reglas:
+    - No incluyas texto extra ni explicaciones fuera del JSON.
+    - Usa español neutro.
+    - Siempre genera 5 preguntas.
+    - Las preguntas de tipo 'photo' o 'voice' no deben tener opciones.
+    - Las preguntas 'text' deben tener exactamente 4 opciones (a, b, c, d).
     Texto: {texto}
     """
 
@@ -411,15 +433,9 @@ def manejar_respuesta_quiz(call):
         bot.answer_callback_query(call.id, "El quiz no está activo.")
         return
 
-    # 1. Obtener la pregunta actual (objeto mdq.Pregunta)
     quiz_actual = sesion['quiz']
     pregunta_actual = quiz_actual.get_pregunta(sesion['indice_actual'])
-    
-    # 2. Obtener la respuesta del usuario
     respuesta_usuario = call.data.split('|')[1] 
-    
-    # 3. ¡AQUÍ USAMOS EL MÉTODO DE LA CLASE!
-    # El main.py no sabe *cómo* se compara, solo le pide a la pregunta que lo haga.
     es_correcta = pregunta_actual.es_correcta(respuesta_usuario)
 
     feedback = "✅ ¡Correcto!" if es_correcta else "❌ Incorrecto."
