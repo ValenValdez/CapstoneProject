@@ -14,12 +14,14 @@ import mimetypes
 from PyPDF2 import PdfReader
 from docx import Document
 from pytubefix import YouTube
+import manejo_de_quizzes as mdq
 
 load_dotenv()
 
 TOKEN_BOT_TELEGRAM = os.getenv('TELEGRAM_BOT_TOKEN')
 CLAVE_API_GROQ = os.getenv('GROQ_API_KEY')
 DATASET_PATH = os.getenv('DATASET_PATH')
+manejador_quizzes = mdq.ManejadorQuizzes()
 
 if not TOKEN_BOT_TELEGRAM:
     raise ValueError("TELEGRAM_BOT_TOKEN no está configurado en las variables de entorno")
@@ -250,12 +252,35 @@ def generar_quiz_con_groq(texto, nombre_documento):
         contador += 1
 
     prompt = f"""
-    Generá un quiz de 5 preguntas de opción múltiple basadas en el siguiente texto.
-    Incluí una respuesta correcta y 3 opciones incorrectas por pregunta.
-    El quiz debe estar en formato JSON, con la siguiente estructura:
-    [{{"pregunta": "¿Qué cursos están disponibles?", "opciones": ["Curso A", "Curso B", "Curso C", "Curso D"], "respuesta_correcta": "a"}}]
-    No incluyas explicaciones, texto adicional ni comillas triples, solo el JSON plano.
-    
+    Generá un quiz de 5 preguntas basadas en el siguiente texto.
+
+    Cada pregunta debe ser de uno de los siguientes tipos:
+    - "text": pregunta de opción múltiple con cuatro opciones (a, b, c, d) y una respuesta correcta.
+    - "photo": pregunta que requiera que el usuario envíe una imagen como respuesta (por ejemplo, "Envía una foto que muestre...").
+    - "voice": pregunta que requiera una respuesta hablada (por ejemplo, "Explica brevemente...").
+
+    Formato del JSON:
+    [
+    {{
+        "pregunta": "¿Qué cursos están disponibles?",
+        "opciones": ["Curso A", "Curso B", "Curso C", "Curso D"],
+        "respuesta_correcta": "a",
+        "tipo_respuesta": "text"
+    }},
+    {{
+        "pregunta": "Muestra un ejemplo de una escena de trabajo en equipo.",
+        "opciones": [],
+        "respuesta_correcta": "",
+        "tipo_respuesta": "photo"
+    }}
+    ]
+
+    Reglas:
+    - No incluyas texto extra ni explicaciones fuera del JSON.
+    - Usa español neutro.
+    - Siempre genera 5 preguntas.
+    - Las preguntas de tipo 'photo' o 'voice' no deben tener opciones.
+    - Las preguntas 'text' deben tener exactamente 4 opciones (a, b, c, d).
     Texto: {texto}
     """
 
@@ -277,8 +302,16 @@ def generar_quiz_con_groq(texto, nombre_documento):
     with open(ruta, "w", encoding="utf-8") as f:
         f.write(quiz)
 
+    # Registrar el nuevo quiz en el manejador en memoria para evitar reiniciar el bot
+    quiz_key = os.path.splitext(os.path.basename(ruta))[0].lower()
+    try:
+        manejador_quizzes.quizzes_cargados[quiz_key] = ruta
+    except Exception as e:
+        print(f"⚠️ No se pudo registrar el quiz en el manejador: {e}")
+
     print(f"\n✅ QUIZ GENERADO: {ruta}\n")
-    return nombre_base
+    return quiz_key
+
 
 def download_audio_from_youtube(url, output_path="temp_audio"):
     """Descarga solo el audio de un video de YouTube y devuelve la ruta del archivo."""
@@ -313,28 +346,131 @@ def transcribe_with_groq(audio_path):
         print(f"Error al transcribir: {e}")
         os.remove(audio_path)
         return None
+def enviar_siguiente_pregunta(bot, chat_id: int, pregunta: mdq.Pregunta):
+    # Obtener el texto de la pregunta con las instrucciones específicas
+    mensaje = pregunta.formato_para_telegram()
+    
+    if pregunta.tipo_respuesta == 'text':
+        # Crear Inline Keyboard para preguntas textuales (opción múltiple)
+        markup = tlb.types.InlineKeyboardMarkup()
+        for i, opcion in enumerate(pregunta.opciones):
+            callback_data = f"quiz_ans|{chr(97 + i)}"
+            markup.add(tlb.types.InlineKeyboardButton(opcion, callback_data=callback_data))
+        
+        bot.send_message(chat_id, mensaje, reply_markup=markup, parse_mode='Markdown')
+        
+    elif pregunta.tipo_respuesta in ('voice', 'photo'):
+        # Solo enviamos el mensaje de instrucciones.
+        bot.send_message(chat_id, mensaje, parse_mode='Markdown')
 
+def procesar_avance_quiz(bot, chat_id, message, es_correcta: bool):
+    siguiente_pregunta, es_fin_de_quiz, estado_final = manejador_quizzes.avanzar_pregunta(chat_id, es_correcta)
+
+    if es_fin_de_quiz:
+        mensaje_final = f"🎉 **¡Quiz finalizado!** 🎉\n\nTu puntaje final es: **{estado_final['puntaje']} de {estado_final['total']}**."
+        bot.reply_to(message, mensaje_final, parse_mode='Markdown')
+        return
+    else:
+        bot.send_message(chat_id, "✅ Respuesta recibida. Siguiente pregunta:")
+        enviar_siguiente_pregunta(bot, chat_id, siguiente_pregunta)
+
+#FUNCIONAMIENTO EN PRIVADO
 @bot.message_handler(commands=['start'], chat_types=["private"])
 def send_welcome(message):
 	# Responde con un mensaje de bienvenida
 	bot.send_chat_action(message.chat.id, "typing")
 	bot.reply_to(message, "¡Hola! Soy Gamma Academy, un bot IA. Pregúntame algo y responderé usando IA o mi base de datos. Usa el comando /empezar 'nombre del quiz' para hacer algun quiz. Usa el comando /cursos para ver cuales estan disponibles.")
 
-@bot.message_handler(content_types=['voice'], chat_types=["private"])
-def handle_voice_message(message: tlb.types.Message):
-    bot.send_chat_action(message.chat.id, 'typing')
-    transcription = trascribe_voice_with_groq(message)
-    if not transcription:
-        bot.reply_to(message, "❌ Lo siento, no pude transcribir el audio. Por favor, intenta de nuevo.")
+@bot.message_handler(commands=['empezar'], chat_types=["private"])
+def empezar_quiz(message):
+    bot.send_chat_action(message.chat.id, "typing")
+    chat_id = message.chat.id
+    
+    partes = message.text.split(maxsplit=1) 
+    if len(partes) < 2:
+        bot.reply_to(message, "⚠️ Falta el nombre del quiz. Usa: `/empezar nombre_del_quiz`")
         return
-    response = get_groq_response(transcription)
-    if response:
-        bot.reply_to(message, response)
+
+    nombre_quiz = partes[1].strip()
+    primera_pregunta = manejador_quizzes.iniciar_quiz(chat_id, nombre_quiz)
+
+    if primera_pregunta:
+        bot.send_message(chat_id, f"✅ **¡Quiz '{nombre_quiz}' iniciado!**")
+        enviar_siguiente_pregunta(bot, chat_id, primera_pregunta)
     else:
-        error_message = """❌ Lo siento, hubo un error al procesar tu consulta.
-Por favor, intenta nuevamente"""
-        bot.reply_to(message, error_message)
+        bot.reply_to(message, f"❌ No se pudo iniciar el quiz **'{nombre_quiz}'**. Revisa que el nombre sea correcto.")
+
+@bot.message_handler(content_types=['voice'], chat_types=["private"])
+def manejar_respuesta_voz_quiz(message: tlb.types.Message):
+    chat_id = message.chat.id
+    tipo_esperado = manejador_quizzes.obtener_tipo_esperado(chat_id)
+
+    if tipo_esperado == 'voice':
+        bot.send_chat_action(chat_id, "typing")
+        es_correcta = True #HAY QUE VERIFICAR ESTO
+        procesar_avance_quiz(bot, chat_id, message, es_correcta)
         return
+    pass
+
+@bot.message_handler(content_types=['photo'], chat_types=["private"])
+def manejar_respuesta_imagen_quiz(message: tlb.types.Message):
+    chat_id = message.chat.id
+    tipo_esperado = manejador_quizzes.obtener_tipo_esperado(chat_id)
+
+    if tipo_esperado == 'photo':
+        bot.send_chat_action(chat_id, "typing")
+        es_correcta = True #HAY QUE VERIFICAR ESTO
+        procesar_avance_quiz(bot, chat_id, message, es_correcta)
+        return
+    pass
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('quiz_ans'))
+def manejar_respuesta_quiz(call):
+    chat_id = call.message.chat.id
+    sesion = manejador_quizzes.sesiones_activas.get(chat_id)
+
+    if not sesion or sesion['tipo_esperado'] != 'text':
+        bot.answer_callback_query(call.id, "El quiz no está activo.")
+        return
+
+    quiz_actual = sesion['quiz']
+    pregunta_actual = quiz_actual.get_pregunta(sesion['indice_actual'])
+    respuesta_usuario = call.data.split('|')[1] 
+    es_correcta = pregunta_actual.es_correcta(respuesta_usuario)
+
+    feedback = "✅ ¡Correcto!" if es_correcta else "❌ Incorrecto."
+    try:
+        texto_original = call.message.text
+        opcion_elegida = respuesta_usuario.upper() 
+        texto_modificado = f"{texto_original}\n\n**Tu respuesta:** {opcion_elegida}\n\n{feedback}"
+        bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=call.message.message_id,
+            text=texto_modificado,
+            reply_markup=None, 
+            parse_mode='Markdown'
+        )
+    except Exception as e:
+        print(f"Error al editar mensaje de callback: {e}")
+
+    bot.answer_callback_query(call.id, feedback)
+    procesar_avance_quiz(bot, chat_id, call.message, es_correcta)
+
+# @bot.message_handler(content_types=['voice'], chat_types=["private"])
+# def handle_voice_message(message: tlb.types.Message):
+#     bot.send_chat_action(message.chat.id, 'typing')
+#     transcription = trascribe_voice_with_groq(message)
+#     if not transcription:
+#         bot.reply_to(message, "❌ Lo siento, no pude transcribir el audio. Por favor, intenta de nuevo.")
+#         return
+#     response = get_groq_response(transcription)
+#     if response:
+#         bot.reply_to(message, response)
+#     else:
+#         error_message = """❌ Lo siento, hubo un error al procesar tu consulta.
+# Por favor, intenta nuevamente"""
+#         bot.reply_to(message, error_message)
+#         return
 
 @bot.message_handler(commands=['help'], chat_types=["private"])
 def enviar_ayuda(message):
@@ -368,38 +504,39 @@ Si algo no funciona, intenta enviar la imagen de nuevo."""
     bot.reply_to(message, texto_ayuda)
 
 
-@bot.message_handler(content_types=['photo'], chat_types=["private"])
-def manejar_foto(message):
-    """Procesa las imágenes enviadas por el usuario"""
-    try:
-        bot.reply_to(message, "📸 He recibido tu imagen. Analizándola... ⏳")
-        foto = message.photo[-1]
-        info_archivo = bot.get_file(foto.file_id)
-        archivo_descargado = bot.download_file(info_archivo.file_path)
-        imagen_base64 = imagen_a_base64(archivo_descargado)
-        if not imagen_base64:
-            bot.reply_to(message, "❌ Error al procesar la imagen. Intenta de nuevo.")
-            return
-        descripcion = describir_imagen_con_groq(imagen_base64)
-        if descripcion:
-            respuesta = f"🤖 **Descripción de la imagen:**\n\n{descripcion}"
-            bot.reply_to(message, respuesta, parse_mode='Markdown')
-        else:
-            bot.reply_to(message, "❌ No pude analizar la imagen. Por favor, intenta con otra imagen.")
-    except Exception as e:
-        print(f"Error al procesar la imagen: {e}")
-        bot.reply_to(message, "❌ Ocurrió un error al procesar tu imagen. Intenta de nuevo.")
+# @bot.message_handler(content_types=['photo'], chat_types=["private"])
+# def manejar_foto(message):
+#     """Procesa las imágenes enviadas por el usuario"""
+#     try:
+#         bot.reply_to(message, "📸 He recibido tu imagen. Analizándola... ⏳")
+#         foto = message.photo[-1]
+#         info_archivo = bot.get_file(foto.file_id)
+#         archivo_descargado = bot.download_file(info_archivo.file_path)
+#         imagen_base64 = imagen_a_base64(archivo_descargado)
+#         if not imagen_base64:
+#             bot.reply_to(message, "❌ Error al procesar la imagen. Intenta de nuevo.")
+#             return
+#         descripcion = describir_imagen_con_groq(imagen_base64)
+#         if descripcion:
+#             respuesta = f"🤖 **Descripción de la imagen:**\n\n{descripcion}"
+#             bot.reply_to(message, respuesta, parse_mode='Markdown')
+#         else:
+#             bot.reply_to(message, "❌ No pude analizar la imagen. Por favor, intenta con otra imagen.")
+#     except Exception as e:
+#         print(f"Error al procesar la imagen: {e}")
+#         bot.reply_to(message, "❌ Ocurrió un error al procesar tu imagen. Intenta de nuevo.")
 
-@bot.message_handler(func=lambda message: True, chat_types=["private"])
-def responder(message):
-	pregunta = message.text
-	respuesta = buscar_en_dataset(pregunta, dataset)
-	if respuesta:
-		bot.reply_to(message, respuesta)
-	else:
-		respuesta_ia = get_groq_response(pregunta)
-		bot.reply_to(message, respuesta_ia)
-          
+# @bot.message_handler(func=lambda message: True, chat_types=["private"])
+# def responder(message):
+# 	pregunta = message.text
+# 	respuesta = buscar_en_dataset(pregunta, dataset)
+# 	if respuesta:
+# 		bot.reply_to(message, respuesta)
+# 	else:
+# 		respuesta_ia = get_groq_response(pregunta)
+# 		bot.reply_to(message, respuesta_ia)
+
+
 #FUNCIONAMIENTO EN GRUPOS
 @bot.message_handler(commands=['start'], chat_types=["group", "supergroup"])
 def send_welcome_group(message):
@@ -428,7 +565,7 @@ def handle_document(message):
     except Exception as e:
         print(f"⚠️ No se pudo eliminar {file_path}: {e}")
 
-    bot.reply_to(message, f"✅ ¡Quiz generado!. Envienme al privado el comando /empezar {quiz} .")
+    bot.reply_to(message, f"✅ ¡Quiz generado!. Envienme al privado el comando /empezar {quiz}.")
 
 @bot.message_handler(func=lambda message: bool(re.search(r'http[s]?://', message.text or '')), chat_types=["group", "supergroup"])
 def handle_link(message):
@@ -450,7 +587,7 @@ def handle_link(message):
     except Exception as e:
         print(f"⚠️ No se pudo eliminar {audio_file}: {e}")
 
-    bot.reply_to(message, f"✅ ¡Quiz generado!. Envienme al privado el comando /empezar {quiz} .")
+    bot.reply_to(message, f"✅ ¡Quiz generado!. Envienme al privado el comando /empezar {quiz}.")
 
 
 # Punto de entrada principal del script
