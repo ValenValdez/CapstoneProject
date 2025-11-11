@@ -119,7 +119,7 @@ def load_company_data():
 company_data = load_company_data()
 
 
-def trascribe_voice_with_groq(message: tlb.types.Message) -> Optional[str]:
+def transcribe_voice_with_groq(message: tlb.types.Message) -> Optional[str]:
     try:
         file_info = bot.get_file(message.voice.file_id)
         downloaded_file = bot.download_file(file_info.file_path)
@@ -130,18 +130,21 @@ def trascribe_voice_with_groq(message: tlb.types.Message) -> Optional[str]:
         with open(temp_file, "wb") as f:
             f.write(downloaded_file)
         with open(temp_file, "rb") as file:
-            trascription = cliente_groq.audio.transcriptions.create(
+            transcription = cliente_groq.audio.transcriptions.create(
                 file = (temp_file, file.read()),
                 model = "whisper-large-v3-turbo",
-                prompt = "Especificar contexto o pronunciacion",
-                response_format = "json",
+                prompt=(
+                    "La persona está respondiendo una pregunta de un examen en español. "
+                    "La transcripción debe conservar palabras clave importantes, "
+                    "nombres propios y tecnicismos. "
+                    "Ignora muletillas o repeticiones."
+                ),
+                response_format = "text",
                 language= "es",
-                temperature = 1
+                temperature = 0.2
             )
         os.remove(temp_file)
-
-
-        return trascription.text
+        return transcription.strip()
    
     except Exception as e:
         print(f"Error al transcribir; {str(e)}")
@@ -338,7 +341,9 @@ def transcribe_with_groq(audio_path):
         with open(audio_path, "rb") as f:
             transcription = cliente_groq.audio.transcriptions.create(
                 file=f,
-                model="whisper-large-v3"
+                model="whisper-large-v3-turbo",
+                language="es",
+                prompt = "Especificar contexto o pronunciacion, responder siempre en idioma español independientemente del idioma del audio",
             )
         os.remove(audio_path)
         return transcription.text
@@ -407,7 +412,47 @@ def manejar_respuesta_voz_quiz(message: tlb.types.Message):
 
     if tipo_esperado == 'voice':
         bot.send_chat_action(chat_id, "typing")
-        es_correcta = True #HAY QUE VERIFICAR ESTO
+        transcription = transcribe_voice_with_groq(message)
+        if not transcription:
+         bot.reply_to(message, "❌ Lo siento, no pude transcribir el audio. Por favor, intenta de nuevo.")
+         return
+        sesion = manejador_quizzes.sesiones_activas.get(chat_id)
+        quiz_actual = sesion['quiz']
+        pregunta_actual = quiz_actual.get_pregunta(sesion['indice_actual'])
+        prompt = f"""
+        Evalúa la siguiente respuesta de un usuario a una pregunta oral.
+
+        Debes responder con JSON del siguiente formato:
+        {{"correcta": true/false, "razon": "explicación breve"}}
+
+        Pregunta: {pregunta_actual.pregunta}
+        Respuesta esperada: {pregunta_actual.respuesta_correcta}
+        Respuesta del usuario: {transcription}
+
+        Criterio:
+        - Considera la respuesta correcta si comunica la misma idea general aunque use otras palabras.
+        - Considera incorrecta si no aborda el tema o contradice la respuesta esperada.
+        - Evalúa solo el contenido, no el tono ni la gramática.
+        """
+
+        evaluacion = cliente_groq.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0,
+            max_tokens=150
+        )
+
+        texto_eval = evaluacion.choices[0].message.content.strip()
+        try:
+            resultado = json.loads(re.search(r'\{.*\}', texto_eval).group(0))
+            es_correcta = resultado.get("correcta", False)
+            razon = resultado.get("razon", "")
+        except:
+            es_correcta = "true" in texto_eval.lower()
+            razon = ""
+
+        feedback = "✅ ¡Correcto!" if es_correcta else "❌ Incorrecto."
+        bot.reply_to(message, f"{feedback}\n\n Tu respuesta: _{transcription}_\n💬 {razon}", parse_mode="Markdown")
         procesar_avance_quiz(bot, chat_id, message, es_correcta)
         return
     pass
@@ -419,7 +464,42 @@ def manejar_respuesta_imagen_quiz(message: tlb.types.Message):
 
     if tipo_esperado == 'photo':
         bot.send_chat_action(chat_id, "typing")
-        es_correcta = True #HAY QUE VERIFICAR ESTO
+        foto = message.photo[-1]
+        info_archivo = bot.get_file(foto.file_id)
+        archivo_descargado = bot.download_file(info_archivo.file_path)
+        imagen_base64 = imagen_a_base64(archivo_descargado)
+        if not imagen_base64:
+            bot.reply_to(message, "❌ Error al procesar la imagen. Intenta de nuevo.")
+            return
+        descripcion = describir_imagen_con_groq(imagen_base64)
+        if not descripcion:
+            bot.reply_to(message, "❌ No pude analizar la imagen. Por favor, intenta con otra imagen.")
+            return
+        
+        sesion = manejador_quizzes.sesiones_activas.get(chat_id)
+        quiz_actual = sesion['quiz']
+        pregunta_actual = quiz_actual.get_pregunta(sesion['indice_actual'])
+
+        prompt = f"""
+        Evalúa si la imagen del usuario (descrita abajo) cumple correctamente la consigna.
+        Responde SOLO con "True" o "False".
+
+        Pregunta: {pregunta_actual.pregunta}
+        Respuesta esperada: {pregunta_actual.respuesta_correcta}
+        Descripción de la imagen enviada por el usuario: {descripcion}
+        """
+
+        evaluacion = cliente_groq.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.0,
+        max_tokens=3
+    )
+        evaluacion_texto = evaluacion.choices[0].message.content.strip().lower()
+        es_correcta = "true" in evaluacion_texto
+
+        feedback = "✅ ¡Correcto!" if es_correcta else "❌ Incorrecto."
+        bot.reply_to(message, f"{feedback}\n\nDescripción de tu imagen: {descripcion}", parse_mode="Markdown")
         procesar_avance_quiz(bot, chat_id, message, es_correcta)
         return
     pass
@@ -456,22 +536,6 @@ def manejar_respuesta_quiz(call):
     bot.answer_callback_query(call.id, feedback)
     procesar_avance_quiz(bot, chat_id, call.message, es_correcta)
 
-# @bot.message_handler(content_types=['voice'], chat_types=["private"])
-# def handle_voice_message(message: tlb.types.Message):
-#     bot.send_chat_action(message.chat.id, 'typing')
-#     transcription = trascribe_voice_with_groq(message)
-#     if not transcription:
-#         bot.reply_to(message, "❌ Lo siento, no pude transcribir el audio. Por favor, intenta de nuevo.")
-#         return
-#     response = get_groq_response(transcription)
-#     if response:
-#         bot.reply_to(message, response)
-#     else:
-#         error_message = """❌ Lo siento, hubo un error al procesar tu consulta.
-# Por favor, intenta nuevamente"""
-#         bot.reply_to(message, error_message)
-#         return
-
 @bot.message_handler(commands=['help'], chat_types=["private"])
 def enviar_ayuda(message):
     """Mensaje de ayuda"""
@@ -503,28 +567,10 @@ def enviar_ayuda(message):
 Si algo no funciona, intenta enviar la imagen de nuevo."""
     bot.reply_to(message, texto_ayuda)
 
+# @bot.message_handler(commands=['feedback'], chat_types=["private"])
+# def recibir_feedback(message):
 
-# @bot.message_handler(content_types=['photo'], chat_types=["private"])
-# def manejar_foto(message):
-#     """Procesa las imágenes enviadas por el usuario"""
-#     try:
-#         bot.reply_to(message, "📸 He recibido tu imagen. Analizándola... ⏳")
-#         foto = message.photo[-1]
-#         info_archivo = bot.get_file(foto.file_id)
-#         archivo_descargado = bot.download_file(info_archivo.file_path)
-#         imagen_base64 = imagen_a_base64(archivo_descargado)
-#         if not imagen_base64:
-#             bot.reply_to(message, "❌ Error al procesar la imagen. Intenta de nuevo.")
-#             return
-#         descripcion = describir_imagen_con_groq(imagen_base64)
-#         if descripcion:
-#             respuesta = f"🤖 **Descripción de la imagen:**\n\n{descripcion}"
-#             bot.reply_to(message, respuesta, parse_mode='Markdown')
-#         else:
-#             bot.reply_to(message, "❌ No pude analizar la imagen. Por favor, intenta con otra imagen.")
-#     except Exception as e:
-#         print(f"Error al procesar la imagen: {e}")
-#         bot.reply_to(message, "❌ Ocurrió un error al procesar tu imagen. Intenta de nuevo.")
+
 
 # @bot.message_handler(func=lambda message: True, chat_types=["private"])
 # def responder(message):
