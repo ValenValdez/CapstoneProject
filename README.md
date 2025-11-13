@@ -1,61 +1,59 @@
-# CapstoneProject
+# 🤖 Gamma Academy - Asistente de Capacitación y Visión AI
 Este repositorio contiene el código fuente del bot de Telegram desarrollado para el curso Samsung Innovation Campus (SIC). Este proyecto es de Valentín Valdez, Maia Aramayo y Micaela Cafardo.
-
-🤖 Gamma Academy - Asistente de Capacitación y Visión AI
-📋 Descripción
+# 📋 Descripción
 Gamma Academy es un bot de Telegram diseñado como un Asistente Virtual de Capacitación Interna basado en la arquitectura RAG (Retrieval-Augmented Generation) y herramientas de Visión Artificial Multimodal.
 
 Su objetivo principal es responder de manera profesional y precisa las preguntas de los empleados sobre la organización, sus políticas y procesos, utilizando una Base de Conocimiento (JSON) y la potencia de la IA. Además, permite generar quizzes interactivos a partir de documentos y evaluar respuestas complejas (voz e imagen) mediante modelos avanzados de Groq.
 
 El sistema almacena el progreso de los usuarios y permite la exportación de resultados a Excel para un seguimiento gerencial efectivo.
 
-✨ Características Principales
-📚 RAG Integrado: Respuestas exactas y profesionales obtenidas de una Base de Datos local (JSON) y complementadas por un Large Language Model (LLM).
+# ✨ Características Principales
+* 📚 RAG Integrado: Respuestas exactas y profesionales obtenidas de una Base de Datos local (JSON) y complementadas por un Large Language Model (LLM).
 
-📝 Generación de Quizzes: Crea automáticamente evaluaciones de 5 preguntas a partir de archivos subidos (PDF, DOCX, TXT) o enlaces de YouTube, usando Groq (LLM).
+* 📝 Generación de Quizzes: Crea automáticamente evaluaciones de 5 preguntas a partir de archivos subidos (PDF, DOCX, TXT) o enlaces de YouTube, usando Groq (LLM).
 
-🎤 Reconocimiento de Voz (STT): Transcribe mensajes de voz usando la API de Groq (Whisper) para procesar tanto consultas de chat como respuestas a preguntas de quiz.
+* 🎤 Reconocimiento de Voz (STT): Transcribe mensajes de voz usando la API de Groq (Whisper) para procesar tanto consultas de chat como respuestas a preguntas de quiz.
 
-📸 Visión Artificial (Vision AI): Describe e interpreta imágenes enviadas (fotos, gráficos) usando un modelo multimodal de Groq (Llama 4 Scout), lo cual permite la evaluación automática de respuestas visuales en los quizzes.
+* 📸 Visión Artificial (Vision AI): Describe e interpreta imágenes enviadas (fotos, gráficos) usando un modelo multimodal de Groq (Llama 4 Scout), lo cual permite la evaluación automática de respuestas visuales en los quizzes.
 
-🎯 Evaluación Multimodal: Evalúa respuestas de tipo texto (opción múltiple), voz e imagen comparando el input del usuario con la respuesta esperada por la IA.
+* 🎯 Evaluación Multimodal: Evalúa respuestas de tipo texto (opción múltiple), voz e imagen comparando el input del usuario con la respuesta esperada por la IA.
 
-📊 Análisis de Sentimiento: Clasifica el feedback del usuario al finalizar cada quiz (Muy Positivo, Negativo, etc.) usando BERT Multilingüe.
+* 📊 Análisis de Sentimiento: Clasifica el feedback del usuario al finalizar cada quiz (Muy Positivo, Negativo, etc.) usando BERT Multilingüe.
 
-📈 Exportación de Resultados: Genera un archivo .xlsx (Excel) con los resultados de un quiz específico para seguimiento y auditoría.
+* 📈 Exportación de Resultados: Genera un archivo .xlsx (Excel) con los resultados de un quiz específico para seguimiento y auditoría.
 
-🚀 Instalación
-Requisitos Previos
-Python 3.10 o superior.
+# 🚀 Instalación
+### Requisitos Previos:
+* Python 3.10 o superior.
 
-Cuenta de Telegram.
+* Cuenta de Telegram.
 
-API Token de Telegram Bot (obtener de @BotFather).
+* API Token de Telegram Bot (obtener de @BotFather).
 
-API Key de Groq.
+* API Key de Groq.
 
-1. Clonar el Repositorio
-Bash
-
+### 1. Clonar el Repositorio
+```Bash  
 git clone <URL_DE_TU_REPOSITORIO>
 cd gamma-academy
-2. Crear Entorno Virtual
-Bash
+```
+
+
+### 2. Crear Entorno Virtual
+```Bash
 
 python -m venv venv
-# En Windows:
-venv\Scripts\activate
-# En Linux/Mac:
-source venv/bin/activate
-3. Instalar Dependencias
+```
+### 3. Instalar Dependencias
 Instala todas las librerías necesarias para el manejo de Telegram, IA, y documentos:
 
-Bash
+```Bash
 
 pip install -r requirements.txt
+```
 requirements.txt:
 
-python-dotenv
+```python-dotenv
 pyTelegramBotAPI
 groq
 transformers
@@ -65,15 +63,69 @@ PyPDF2
 python-docx
 pytubefix
 Pillow
-4. Configurar Variables de Entorno
+```
+### 4. Configurar Variables de Entorno
 Crear archivo .env en la raíz del proyecto:
 
-TELEGRAM_BOT_TOKEN=tu_token_de_telegram
+```TELEGRAM_BOT_TOKEN=tu_token_de_telegram
 GROQ_API_KEY=tu_api_key_de_groq
 DATASET_PATH=data/dataset.json
+```
 (Asegúrate de que la ruta DATASET_PATH apunte a tu archivo de preguntas y respuestas internas).
 
-5. Ejecutar el Bot
-Bash
+### 5. Ejecutar el Bot
+```Bash
 
 python BOT_final.py
+```
+
+# 🎮 UsoComandos Disponibles
+ComandoDescripción(Chat Privado y Grupal) 
+
+/start Iniciar conversación y ver mensaje de bienvenida.
+/cursos Muestra la lista de todos los quizzes (cursos )disponibles actualmente.
+/empezar [nombre]Inicia un quiz específico en el chat privado.
+/exportar [nombre]Exporta los resultados finales de un quiz a un archivo Excel (.xlsx).
+/resumen [tema]Genera un resumen educativo conciso sobre un tema específico usando la IA.
+
+Formas de Interactuar
+Tipo de Interacción Uso Principal
+💬 TextoConsultas al RAG Bot y respuestas a preguntas de opción múltiple.
+🎤 AudioEnvía un mensaje de voz para chatear o para responder preguntas de tipo voice en los quizzes.
+📸 FotoEnvía una imagen para que el bot la describa con IA Vision o para responder preguntas de tipo photo en los quizzes.
+📎 Documento/LinkSube un PDF, DOCX, TXT, o un enlace de YouTube en un chat grupal para crear un nuevo quiz basado en su contenido.
+
+Ejemplos de Uso
+Consulta RAG ¿quienes somos? "Somos Gamma Academy, tu plataforma de capacitación interna basada en IA, diseñada para reforzar el aprendizaje corporativo a través de quizzes interactivos y herramientas de IA."
+Generar Quiz[Sube un PDF] (en grupo) "Por favor, indique el nombre que desea asignarle al nuevo quiz."
+Quiz VozPregunta: Explique brevemente la política de licencias.[Envía audio con explicación]Quiz ImagenPregunta: Muestre un ejemplo de un cable de red categoría 6.[Envía foto de un cable de red]
+
+# 📁 Estructura del Proyectotp_final_samsung/
+├── BOT_final.py              # Script principal del bot con toda la lógica
+├── .env                      # Variables de entorno (NO incluir en git)
+├── requirements.txt          # Dependencias del proyecto
+├── README.md                 # Este archivo
+├── data/
+│   ├── dataset.json          # Base de conocimiento (RAG Q&A)
+├── quizzes/
+│   └── quiz_ejemplo.json     # Quizzes generados o predefinidos
+├── resultados/
+│   ├── resultados_finales.json # Log de puntajes de quizzes
+│   └── resultados_quiz_A.xlsx  # Exportación de resultados a Excel
+└── utils/
+    ├── manejo_de_quizzes.py  # Gestiona la lógica de las sesiones de quiz
+    ├── + otros archivos...   # Archivos de utilidad
+# 🛠️ Tecnologías Utilizadas
+Framework BotpyTelegramBotAPIConexión e interacción con Telegram.
+LLM/GeneraciónGroq API (llama-3.3-70b-versatile)Respuestas de chat, RAG fallback y generación de preguntas de quiz.
+    Visión AIGroq API (llama-4-scout)Descripción y evaluación de imágenes enviadas por el usuario.STTGroq API (whisper-large-v3-turbo)Transcripción de audios de chat y respuestas de quiz.NLPtransformers (BERT)Análisis de sentimiento del feedback post-quiz.
+    Datos/AnálisisPandasProcesamiento y exportación de resultados a Excel.
+    DocumentosPyPDF2, python-docx, pytubefixExtracción de texto de documentos y videos para la generación de quizzes.
+    
+# 🤝 Contribuir
+Las contribuciones son bienvenidas. Por favor:
+Fork el proyecto.
+Crea una rama para tu feature (git checkout -b feature/AmazingFeature).
+Commit tus cambios (git commit -m 'Add some AmazingFeature').
+Push a la rama (git push origin feature/AmazingFeature).
+Abre un Pull Request.
