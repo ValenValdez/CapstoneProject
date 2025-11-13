@@ -1,0 +1,5 @@
+# Ignorar la carpeta del entorno virtual
+entorno_gamma/
+
+# Ignorar archivos de secretos
+.env
