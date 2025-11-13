@@ -343,10 +343,14 @@ def download_audio_from_youtube(url, output_path="temp_audio"):
         stream = yt.streams.filter(only_audio=True).first()
 
         os.makedirs(output_path, exist_ok=True)
+        titulo_limpio = yt.title
+        titulo_limpio = re.sub(r'[^\w\s\-\.]', '', titulo_limpio)
+        titulo_limpio = re.sub(r'\s+', '_', titulo_limpio).strip('_')
+
         print(f"Descargando audio de: {yt.title}")
         out_file = stream.download(output_path)
         base, _ = os.path.splitext(out_file)
-        new_file = os.path.join(output_path, f"{yt.title}.mp3")
+        new_file = os.path.join(output_path, f"{titulo_limpio}.mp3")
         os.rename(out_file, new_file)
 
         print(f"Audio descargado en: {new_file}")
@@ -372,21 +376,33 @@ def transcribe_with_groq(audio_path):
         os.remove(audio_path)
         return None
 def enviar_siguiente_pregunta(bot, chat_id: int, pregunta: mdq.Pregunta):
-    # Obtener el texto de la pregunta con las instrucciones específicas
+    # Formateo base de la pregunta
     mensaje = pregunta.formato_para_telegram()
-    
+
+    # Obtener progreso desde la sesión si existe
+    sesion = manejador_quizzes.sesiones_activas.get(chat_id)
+    if sesion:
+        progreso = sesion['indice_actual'] + 1  # índice_actual ya avanzó cuando se llama
+        total = sesion['total_preguntas']
+        progreso_texto = f"📘 Pregunta {progreso} de {total}\n\n"
+    else:
+        progreso_texto = ""
+
+    texto_a_enviar = progreso_texto + mensaje
+
     if pregunta.tipo_respuesta == 'text':
         # Crear Inline Keyboard para preguntas textuales (opción múltiple)
         markup = tlb.types.InlineKeyboardMarkup()
         for i, opcion in enumerate(pregunta.opciones):
             callback_data = f"quiz_ans|{chr(97 + i)}"
             markup.add(tlb.types.InlineKeyboardButton(opcion, callback_data=callback_data))
-        
-        bot.send_message(chat_id, mensaje, reply_markup=markup, parse_mode='Markdown')
-        
+
+        bot.send_message(chat_id, texto_a_enviar, reply_markup=markup, parse_mode='Markdown')
     elif pregunta.tipo_respuesta in ('voice', 'photo'):
-        # Solo enviamos el mensaje de instrucciones.
-        bot.send_message(chat_id, mensaje, parse_mode='Markdown')
+        bot.send_message(chat_id, texto_a_enviar, parse_mode='Markdown')
+    else:
+        bot.send_message(chat_id, texto_a_enviar, parse_mode='Markdown')
+
 
 def procesar_avance_quiz(bot, chat_id, message_or_call_message, user: tlb.types.User, es_correcta: bool):
     nombre_quiz = "desconocido"
@@ -398,12 +414,26 @@ def procesar_avance_quiz(bot, chat_id, message_or_call_message, user: tlb.types.
     if es_fin_de_quiz:
         puntaje = estado_final['puntaje']
         total = estado_final['total']
-        
+        porcentaje = puntaje / total * 100
+
+        if porcentaje == 100:
+            medalla = "🥇 *Nivel Oro* — ¡Perfección total!"
+        elif porcentaje >= 70:
+            medalla = "🥈 *Nivel Plata* — ¡Excelente desempeño!"
+        else:
+            medalla = "🥉 *Nivel Bronce* — ¡A seguir practicando!"
+
         try:
             guardar_resultado(nombre_quiz, user, puntaje, total)
         except Exception as e:
             print(f"⚠️ Error al llamar a guardar_resultado: {e}")
-        mensaje_final = f"🎉 **¡Quiz finalizado!** 🎉\n\nTu puntaje final es: **{puntaje} de {total}**."
+
+        mensaje_final = (
+            f"🎉 **¡Quiz finalizado!** 🎉\n\n"
+            f"Tu puntaje final es: **{puntaje}/{total}**.\n"
+            f"Eso equivale a un {porcentaje:.0f}% de aciertos ✅\n\n"
+            f"{medalla}"
+        )
         
         # Distinguimos si responder a un mensaje (reply) o enviar uno nuevo (si era botón)
         if hasattr(message_or_call_message, 'reply_to_message'):
@@ -546,6 +576,40 @@ def send_welcome(message):
 	bot.send_chat_action(message.chat.id, "typing")
 	bot.reply_to(message, "¡Hola! Soy Gamma Academy, un bot IA. Pregúntame algo y responderé usando IA o mi base de datos. Usa el comando /empezar 'nombre del quiz' para hacer algun quiz. Usa el comando /cursos para ver cuales estan disponibles.")
 
+@bot.message_handler(commands=['resumen'], chat_types=["private"])
+def generar_resumen(message):
+    bot.send_chat_action(message.chat.id, "typing")
+
+    partes = message.text.split(maxsplit=1)
+    if len(partes) < 2:
+        bot.reply_to(message, "⚠️ Debes indicar un tema. Ejemplo: `/resumen electricidad`")
+        return
+
+    tema = partes[1].strip()
+
+    prompt = f"""
+    Genera un resumen educativo claro y conciso sobre el siguiente tema: {tema}.
+    Requisitos:
+    - Usa lenguaje técnico pero fácil de entender.
+    - Extensión máxima: 10 líneas.
+    - Incluye ejemplos o aplicaciones si es relevante.
+    - En español neutro.
+    """
+
+    try:
+        respuesta = cliente_groq.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.4,
+            max_tokens=400
+        )
+
+        resumen = respuesta.choices[0].message.content.strip()
+        bot.reply_to(message, f"📘 **Resumen sobre {tema}:**\n\n{resumen}", parse_mode='Markdown')
+    except Exception as e:
+        print(f"Error al generar resumen: {e}")
+        bot.reply_to(message, "❌ Ocurrió un error al generar el resumen.", parse_mode='Markdown')
+
 @bot.message_handler(commands=['empezar'], chat_types=["private"])
 def empezar_quiz(message):
     bot.send_chat_action(message.chat.id, "typing")
@@ -642,7 +706,7 @@ def manejar_respuesta_imagen_quiz(message: tlb.types.Message):
 
         prompt = f"""
         INSTRUCCIÓN CLAVE: Responde ÚNICAMENTE con la palabra 'True' o con la palabra 'False'. No agregues comillas, explicación, saludos, puntuación ni ningún texto adicional.
-        INSTRUCCIÓN CLAVE: NO utilices asteriscos (*), guiones bajos (_) ni ningún otro carácter para dar formato. Responde ÚNICAMENTE con texto plano.
+        INSTRUCCIÓN CLAVE: NO utilices asteriscos (*), guiones bajos (_) ni ningún otro carácter para dar formato. Responde ÚNICAMENTE con texto plano. Tu respuesta será interpretada como HTML. NO UTILICES ASTERISCOS PARA FORMATEAR.
         Evalúa si la imagen del usuario (descrita abajo) cumple correctamente la consigna.
 
         Pregunta: {pregunta_actual.pregunta}
@@ -750,6 +814,22 @@ def enviar_ayuda(message):
 Si algo no funciona, intenta enviar la imagen de nuevo."""
     bot.reply_to(message, texto_ayuda)
 
+@bot.message_handler(commands=['estadisticas'], chat_types=["private"])
+def mostrar_estadisticas(message):
+    try:
+        with open("resultados/resultados_finales.json", "r", encoding="utf-8") as f:
+            data = json.load(f)
+        user_data = [d for d in data if d["usuario_id"] == message.from_user.id]
+        if not user_data:
+            bot.reply_to(message, "📊 No tenés resultados registrados todavía.")
+            return
+        total_quizzes = len(user_data)
+        promedio = sum(d["puntaje"]/d["total_preguntas"] for d in user_data) / total_quizzes * 100
+        bot.reply_to(message, f"📊 **Resumen de tu desempeño:**\n\nQuizzes hechos: {total_quizzes}\nPromedio general: {promedio:.1f}%")
+    except Exception as e:
+        bot.reply_to(message, "⚠️ No se pudieron cargar las estadísticas.")
+        print(e)
+
 #Funcionamiento en publico y en privado
 # === COMANDO PARA EXPORTAR ===
 @bot.message_handler(commands=['exportar'])
@@ -765,6 +845,7 @@ def exportar_resultados(message):
     if ruta_excel and os.path.exists(ruta_excel):
         with open(ruta_excel, "rb") as f:
             nombre_archivo = f"resultados_{nombre_quiz_a_exportar}.xlsx"
+            bot.reply_to(message, f"📈 Archivo generado exitosamente.\nPodés analizar los resultados de '{nombre_quiz_a_exportar}' en Excel o Google Sheets.")
             bot.send_document(message.chat.id, f, visible_file_name=nombre_archivo)
         try:
             os.remove(ruta_excel)
