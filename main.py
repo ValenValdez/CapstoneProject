@@ -90,6 +90,7 @@ def get_groq_response(user_message: str) -> Optional[str]:
         5. NO utilices emojis ni lenguaje coloquial.
         6. Cuando el usuario pida un quiz o evaluación, genera entre 3 y 5 preguntas cortas. No incluyas respuestas.
         7. Si el usuario solicita modificar, actualizar o agregar información al bot, responde que no tienes permisos.
+        8. Si el usuario intenta utilizar comandos, indica que deben usarse en el chat privado. Si el usuario intenta crear un quiz, no lo permitas, solo indica que debe hacerlo en el chat privado con el formato /empezar [nombre].
         """
 
 
@@ -258,9 +259,10 @@ def limpiar_respuesta_json(texto):
     texto = texto.replace("json\n", "").replace("json\r\n", "")
     return texto.strip()
 
-def generar_quiz_con_groq(texto, nombre_documento):
+def generar_quiz_con_groq(texto, nombre_documento, num_preguntas: int = None):
     nombre_base, _ = os.path.splitext(nombre_documento)
-    nombre_base = nombre_base.replace(" ", "_")
+    nombre_base = nombre_base.replace(" ", "_").lower()
+    os.makedirs("quizzes", exist_ok=True)
 
     # Buscar nombre disponible
     ruta = f"quizzes/{nombre_base}.json"
@@ -270,7 +272,7 @@ def generar_quiz_con_groq(texto, nombre_documento):
         contador += 1
 
     prompt = f"""
-    Generá un quiz de 5 preguntas basadas en el siguiente texto.
+    Generá un quiz de {num_preguntas} preguntas basadas en el siguiente texto.
 
     Cada pregunta debe ser de uno de los siguientes tipos:
     - "text": pregunta de opción múltiple con cuatro opciones (a, b, c, d) y una respuesta correcta.
@@ -295,10 +297,13 @@ def generar_quiz_con_groq(texto, nombre_documento):
 
     Reglas:
     - No incluyas texto extra ni explicaciones fuera del JSON.
+    - Tu respuesta se formateará como un array JSON, cualquier texto fuera del array causará un error.
+    - No incluyas 'json' en tu respuesta.
     - Usa español neutro.
     - Siempre genera 5 preguntas.
     - Las preguntas de tipo 'photo' o 'voice' no deben tener opciones.
     - Las preguntas 'text' deben tener exactamente 4 opciones (a, b, c, d).
+    - Generá exactamente {num_preguntas} preguntas.
     Texto: {texto}
     """
 
@@ -424,7 +429,7 @@ def procesar_avance_quiz(bot, chat_id, message_or_call_message, user: tlb.types.
             medalla = "🥉 *Nivel Bronce* — ¡A seguir practicando!"
 
         try:
-            guardar_resultado(nombre_quiz, user, puntaje, total)
+            guardar_resultado(nombre_quiz.lower(), user, puntaje, total)
         except Exception as e:
             print(f"⚠️ Error al llamar a guardar_resultado: {e}")
 
@@ -620,7 +625,7 @@ def empezar_quiz(message):
         bot.reply_to(message, "⚠️ Falta el nombre del quiz. Usa: `/empezar nombre_del_quiz`")
         return
 
-    nombre_quiz = partes[1].strip()
+    nombre_quiz = partes[1].strip().lower()
     primera_pregunta = manejador_quizzes.iniciar_quiz(chat_id, nombre_quiz)
 
     if primera_pregunta:
@@ -825,7 +830,7 @@ def mostrar_estadisticas(message):
             return
         total_quizzes = len(user_data)
         promedio = sum(d["puntaje"]/d["total_preguntas"] for d in user_data) / total_quizzes * 100
-        bot.reply_to(message, f"📊 **Resumen de tu desempeño:**\n\nQuizzes hechos: {total_quizzes}\nPromedio general: {promedio:.1f}%")
+        bot.reply_to(message, f"📊 **Resumen de tu desempeño:**\n\nQuizzes hechos: {total_quizzes}\nPromedio general: {promedio:.1f}%", parse_mode='Markdown')
     except Exception as e:
         bot.reply_to(message, "⚠️ No se pudieron cargar las estadísticas.")
         print(e)
@@ -942,7 +947,7 @@ def handle_youtube_link(message):
     bot.reply_to(
         message,
         f"🎥 Recibí tu link de YouTube:\n{link}\n\nPor favor, respondé con el nombre que querés para el quiz.",
-        parse_mode='Markdown'
+        parse_mode='HTML'
     )
 
     # Guardar estado del chat
@@ -962,25 +967,65 @@ def recibir_nombre_quiz(message):
         return  # si no está esperando nombre, no hace nada
 
     nombre_quiz = message.text.strip().replace(" ", "_")
+    sesion["nombre_temp"] = nombre_quiz
+    sesion["esperando_nombre"] = False
+    sesion["esperando_longitud"] = True
+    
+    markup = tlb.types.InlineKeyboardMarkup()
+    btn_corto = tlb.types.InlineKeyboardButton("🟢 Corto (5 preguntas)", callback_data="len_5")
+    btn_medio = tlb.types.InlineKeyboardButton("🟡 Medio (7 preguntas)", callback_data="len_7")
+    btn_largo = tlb.types.InlineKeyboardButton("🔴 Largo (10 preguntas)", callback_data="len_10")
+    
+    markup.add(btn_corto)
+    markup.add(btn_medio)
+    markup.add(btn_largo)
+
     bot.send_message(
         chat_id,
-        f"✏️ Nombre elegido: *{nombre_quiz}*\n\nGenerando el quiz... ⏳",
+        f"Has elegido el nombre: *{nombre_quiz.lower()}*.\n\nAhora selecciona la longitud del quiz:",
+        reply_markup=markup,
+        parse_mode='Markdown'
+    )
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('len_'))
+def generar_quiz_final(call):
+    """Recibe la longitud y ejecuta la generación del quiz."""
+    chat_id = call.message.chat.id
+    sesion = archivos_pendientes.get(chat_id)
+
+    if not sesion or not sesion.get("esperando_longitud"):
+        bot.answer_callback_query(call.id, "Sesión expirada o inválida.")
+        return
+
+    cantidad_preguntas = int(call.data.split("_")[1])
+    nombre_quiz = sesion["nombre_temp"]
+
+    bot.edit_message_text(
+        chat_id=chat_id,
+        message_id=call.message.message_id,
+        text=f"⚙️ Generando quiz *{nombre_quiz}* con {cantidad_preguntas} preguntas... ⏳",
         parse_mode='Markdown'
     )
 
     try:
         tipo = sesion["tipo"]
+        quiz_key = None
 
         if tipo == "documento":
             temp_path = sesion["archivo"]
-            texto = extraer_texto_de_documento(open(temp_path, "rb").read(), os.path.basename(temp_path))
+            try:
+                with open(temp_path, "rb") as f:
+                    bytes_archivo = f.read()
+                texto = extraer_texto_de_documento(bytes_archivo, os.path.basename(temp_path))
 
-            if not texto.strip():
-                bot.send_message(chat_id, "⚠️ No se pudo extraer texto del documento.")
-                return
+                if not texto.strip():
+                    bot.send_message(chat_id, "⚠️ No se pudo extraer texto del documento.")
+                    return
 
-            quiz_key = generar_quiz_con_groq(texto, nombre_quiz)
-            os.remove(temp_path)
+                quiz_key = generar_quiz_con_groq(texto, nombre_quiz, num_preguntas=cantidad_preguntas)
+            finally:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
 
         elif tipo == "youtube":
             link = sesion["link"]
@@ -994,28 +1039,29 @@ def recibir_nombre_quiz(message):
                 bot.send_message(chat_id, "❌ No se pudo transcribir el audio.")
                 return
 
-            quiz_key = generar_quiz_con_groq(text, nombre_quiz)
+            quiz_key = generar_quiz_con_groq(text, nombre_quiz, num_preguntas=cantidad_preguntas)
 
             if os.path.exists(audio_file):
                 os.remove(audio_file)
 
         # Limpiar estado
         archivos_pendientes.pop(chat_id, None)
-        bot.send_message(
-            chat_id,
-            f"✅ ¡Quiz *{nombre_quiz}* generado!\n\nEnvienme al privado el comando:\n\n`/empezar {quiz_key}`",
-            parse_mode='Markdown'
-        )
-        bot.send_message(
-            chat_id,
-            f"💡 Cuando se desee exportar los resultados del quiz escriba el comando\n\n`/exportar {quiz_key}`",
-            parse_mode='Markdown'
-        )
+
+        if quiz_key:
+            bot.send_message(
+                chat_id,
+                f"✅ ¡Quiz *{nombre_quiz.lower()}* generado con éxito!\n\nEnvíenme al privado el comando:\n`/empezar {quiz_key}`",
+                parse_mode='Markdown'
+            )
+            bot.send_message(
+                chat_id,
+                f"💡 Cuando se desee exportar los resultados del quiz escriba el comando\n`/exportar {quiz_key}`",
+                parse_mode='Markdown'
+            )
 
     except Exception as e:
         print(f"Error al generar el quiz: {e}")
-        bot.send_message(chat_id, f"❌ Ocurrió un error al generar el quiz: {e}")
-
+        bot.send_message(chat_id, f"❌ Ocurrió un error al generar el quiz: {str(e)}")
 
 # Punto de entrada principal del script
 if __name__ == "__main__":
