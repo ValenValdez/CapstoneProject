@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 import telebot as tlb
 import requests
 import json
@@ -486,34 +485,36 @@ def manejar_respuesta_quiz(call):
 
 @bot.message_handler(commands=['help'], chat_types=["private"])
 def enviar_ayuda(message):
-    """Mensaje de ayuda"""
+    """Muestra una guía detallada de uso del bot."""
 
     texto_ayuda = """
-🔧 Comandos disponibles:
+🤖 **Gamma Academy - Centro de Ayuda**
 
+📘 *Comandos principales:*
 
+/start — Inicia el bot y muestra la bienvenida.  
+/help — Muestra esta guía de ayuda.  
+/cursos — Lista todos los quizzes/cursos disponibles.  
+/empezar <nombre_del_quiz> — Inicia un quiz.  
+/resumen <tema> — Genera un resumen educativo con IA.  
+/estadisticas — Muestra tus resultados y promedio general.  
+/ranking — Muestra el top 10 de usuarios con mejor desempeño.  
+/exportar <nombre_del_quiz> — Descarga los resultados en Excel.
 
-/start - Iniciar el bot
-/help - Mostrar esta ayuda
+📸 *Tipos de preguntas que puedo manejar:*
+- Texto (opciones múltiples)
+- Audio (respuestas habladas)
+- Imagen (responde enviando una foto o dibujo)
 
+💡 *Consejos de uso:*
+- Escribe los comandos siempre en minúscula.
+- Si querés hacer un quiz nuevo, usá un documento o link de YouTube en un grupo.
+- Cuanto más claro sea el material, mejores preguntas se generan.
 
-📸 ¿Cómo usar el bot?
-
-
-1. Envía una imagen (foto, dibujo, captura, etc.)
-2. Espera unos segundos mientras proceso la imagen
-3. Recibirás una descripción detallada de lo que veo
-
-
-💡 Consejos:
-- Las imágenes más claras y nítidas generan mejores descripciones
-- Puedo analizar fotos, dibujos, gráficos, capturas de pantalla, etc.
-- Respondo en español siempre
-
-
-❓ ¿Problemas?
-Si algo no funciona, intenta enviar la imagen de nuevo."""
-    bot.reply_to(message, texto_ayuda)
+❓ *Soporte y errores:*
+Si algo falla, intentá reiniciar el bot o volver a enviar el archivo.
+"""
+    bot.reply_to(message, texto_ayuda, parse_mode='Markdown')
 
 
 # @bot.message_handler(content_types=['photo'], chat_types=["private"])
@@ -786,7 +787,7 @@ def evaluar_y_guardar_respuesta(message, tipo_respuesta: str, contenido):
     procesar_avance_quiz(bot, chat_id, message, es_correcta)
 
 
-=======
+
 import telebot as tlb
 import requests
 import json
@@ -1619,6 +1620,63 @@ def mostrar_estadisticas(message):
         bot.reply_to(message, "⚠️ No se pudieron cargar las estadísticas.")
         print(e)
 
+
+#RANKING 
+
+@bot.message_handler(commands=['ranking'], chat_types=["private"])
+def mostrar_ranking(message):
+    """Muestra el top 10 de usuarios con mejor desempeño."""
+    try:
+        with open("resultados/resultados_finales.json", "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        if not data:
+            bot.reply_to(message, "📊 No hay resultados registrados todavía.")
+            return
+
+        # Calcular promedios por usuario
+        puntajes_por_usuario = {}
+        for d in data:
+            usuario_id = d["usuario_id"]
+            nombre_usuario = d.get("usuario_nombre", f"Usuario {usuario_id}")
+            puntaje = d["puntaje"]
+            total = d["total_preguntas"]
+            promedio = (puntaje / total) * 100
+
+            if usuario_id in puntajes_por_usuario:
+                puntajes_por_usuario[usuario_id]["promedios"].append(promedio)
+            else:
+                puntajes_por_usuario[usuario_id] = {
+                    "nombre": nombre_usuario,
+                    "promedios": [promedio]
+                }
+
+        # Calcular promedio general de cada usuario
+        ranking = []
+        for user_id, info in puntajes_por_usuario.items():
+            promedio_final = sum(info["promedios"]) / len(info["promedios"])
+            ranking.append((info["nombre"], promedio_final))
+
+        # Ordenar por promedio descendente
+        ranking.sort(key=lambda x: x[1], reverse=True)
+
+        # Tomar top 10
+        top_10 = ranking[:10]
+
+        # Generar texto del ranking
+        texto_ranking = "🏆 **Ranking General de Gamma Academy** 🏆\n\n"
+        for i, (nombre, promedio) in enumerate(top_10, start=1):
+            texto_ranking += f"{i}. {nombre} — {promedio:.1f}%\n"
+
+        bot.reply_to(message, texto_ranking, parse_mode='Markdown')
+
+    except FileNotFoundError:
+        bot.reply_to(message, "⚠️ No se encontraron resultados guardados aún.")
+    except Exception as e:
+        print(f"Error al mostrar ranking: {e}")
+        bot.reply_to(message, "❌ Ocurrió un error al generar el ranking.")
+
+
 #Funcionamiento en publico y en privado
 # === COMANDO PARA EXPORTAR ===
 @bot.message_handler(commands=['exportar'])
@@ -1816,4 +1874,4 @@ if __name__ == "__main__":
             print(f"Error en el bot: {str(e)}")
             print("Reiniciando el bot...")
             time.sleep(5)  # Espera antes de reintentar
->>>>>>> developer
+
