@@ -82,50 +82,56 @@ python BOT_final.py
 # 🎮 UsoComandos Disponibles
 ComandoDescripción(Chat Privado y Grupal) 
 
-/start Iniciar conversación y ver mensaje de bienvenida.
-/cursos Muestra la lista de todos los quizzes (cursos )disponibles actualmente.
-/empezar [nombre]Inicia un quiz específico en el chat privado.
-/exportar [nombre]Exporta los resultados finales de un quiz a un archivo Excel (.xlsx).
-/resumen [tema]Genera un resumen educativo conciso sobre un tema específico usando la IA.
+| **Comando**           | **Descripción**                                                                 |
+|------------------------|---------------------------------------------------------------------------------|
+| `/start`              | Iniciar conversación y ver mensaje de bienvenida.                              |
+| `/cursos`             | Muestra la lista de todos los quizzes (cursos) disponibles actualmente.         |
+| `/empezar [nombre]`   | Inicia un quiz específico en el chat privado.                                  |
+| `/exportar [nombre]`  | Exporta los resultados finales de un quiz a un archivo Excel (.xlsx).          |
+| `/resumen [tema]`     | Genera un resumen educativo conciso sobre un tema específico usando la IA.     |
 
-Formas de Interactuar
-Tipo de Interacción Uso Principal
-💬 TextoConsultas al RAG Bot y respuestas a preguntas de opción múltiple.
-🎤 AudioEnvía un mensaje de voz para chatear o para responder preguntas de tipo voice en los quizzes.
-📸 FotoEnvía una imagen para que el bot la describa con IA Vision o para responder preguntas de tipo photo en los quizzes.
-📎 Documento/LinkSube un PDF, DOCX, TXT, o un enlace de YouTube en un chat grupal para crear un nuevo quiz basado en su contenido.
+## Formas de Interactuar
+| Tipo de Interacción | Uso Principal |
+| :--- | :--- |
+| **💬 Texto** | Consultas al **RAG Bot** y respuestas a preguntas de **opción múltiple**. |
+| **🎤 Audio** | Envía un mensaje de voz para chatear o para responder preguntas de tipo `voice` en los quizzes. |
+| **📸 Foto** | Envía una imagen para que el bot la describa con **IA Vision** o para responder preguntas de tipo `photo` en los quizzes. |
+| **📎 Documento/Link** | Sube un **PDF, DOCX, TXT, o un enlace de YouTube** en un chat grupal para **crear un nuevo quiz** basado en su contenido. |
 
-Ejemplos de Uso
-Consulta RAG ¿quienes somos? "Somos Gamma Academy, tu plataforma de capacitación interna basada en IA, diseñada para reforzar el aprendizaje corporativo a través de quizzes interactivos y herramientas de IA."
-Generar Quiz[Sube un PDF] (en grupo) "Por favor, indique el nombre que desea asignarle al nuevo quiz."
-Quiz VozPregunta: Explique brevemente la política de licencias.[Envía audio con explicación]Quiz ImagenPregunta: Muestre un ejemplo de un cable de red categoría 6.[Envía foto de un cable de red]
+## Ejemplos de Uso
+| Escenario | Usuario (Input) | Bot/Gamma Academy (Output) |
+| :--- | :--- | :--- |
+| **Consulta RAG** | `¿quienes somos?` | "Somos Gamma Academy, tu plataforma de capacitación interna basada en IA, diseñada para reforzar el aprendizaje corporativo a través de quizzes interactivos y herramientas de IA." |
+| **Generar Quiz** | `[Sube un PDF]` *(en chat grupal)* | "Por favor, indique el nombre que desea asignarle al nuevo quiz." |
+| **Quiz Voz** | *Pregunta:* Explique brevemente la política de licencias. **Usuario:** *[Envía audio con explicación]* | **Bot:** ✅ Respuesta recibida. Siguiente pregunta: *(Evalúa la voz y continúa el quiz).* |
+| **Quiz Imagen** | *Pregunta:* Muestre un ejemplo de un cable de red categoría 6. **Usuario:** *[Envía foto de un cable de red]* | **Bot:** ✅ Respuesta recibida. Siguiente pregunta: *(Evalúa la imagen con IA Vision y continúa el quiz).* |
 
 # 📁 Estructura del Proyectotp_final_samsung/
-├── BOT_final.py              # Script principal del bot con toda la lógica
-├── .env                      # Variables de entorno (NO incluir en git)
-├── requirements.txt          # Dependencias del proyecto
-├── README.md                 # Este archivo
+La estructura del repositorio refleja una aplicación de bot modular con componentes dedicados a la lógica central, datos y utilidades.
+```
+tp_final_samsung/
+├── BOT_final.py              # Script principal del bot con toda la lógica de Telegram y handlers.
+├── .env                      # Variables de entorno (NO incluir en el control de versiones/git).
+├── requirements.txt          # Dependencias del proyecto.
+├── README.md                 # Este archivo de documentación.
 ├── data/
-│   ├── dataset.json          # Base de conocimiento (RAG Q&A)
+│   └── dataset.json          # Base de conocimiento estática (RAG Q&A).
 ├── quizzes/
-│   └── quiz_ejemplo.json     # Quizzes generados o predefinidos
+│   └── quiz_ejemplo.json     # Ejemplo de un quiz generado o predefinido.
 ├── resultados/
-│   ├── resultados_finales.json # Log de puntajes de quizzes
-│   └── resultados_quiz_A.xlsx  # Exportación de resultados a Excel
+│   ├── resultados_finales.json # Log histórico de puntajes finales de todos los quizzes.
+│   └── resultados_quiz_A.xlsx  # Ejemplo de exportación de resultados a Excel.
 └── utils/
-    ├── manejo_de_quizzes.py  # Gestiona la lógica de las sesiones de quiz
-    ├── + otros archivos...   # Archivos de utilidad
+    ├── manejo_de_quizzes.py  # Módulo principal para gestionar las sesiones y el progreso de los quizzes.
+    └── + otros archivos...   # Módulos de ayuda adicionales para transcripción, visión, etc.
+```
 # 🛠️ Tecnologías Utilizadas
-Framework BotpyTelegramBotAPIConexión e interacción con Telegram.
-LLM/GeneraciónGroq API (llama-3.3-70b-versatile)Respuestas de chat, RAG fallback y generación de preguntas de quiz.
-    Visión AIGroq API (llama-4-scout)Descripción y evaluación de imágenes enviadas por el usuario.STTGroq API (whisper-large-v3-turbo)Transcripción de audios de chat y respuestas de quiz.NLPtransformers (BERT)Análisis de sentimiento del feedback post-quiz.
-    Datos/AnálisisPandasProcesamiento y exportación de resultados a Excel.
-    DocumentosPyPDF2, python-docx, pytubefixExtracción de texto de documentos y videos para la generación de quizzes.
-    
-# 🤝 Contribuir
-Las contribuciones son bienvenidas. Por favor:
-Fork el proyecto.
-Crea una rama para tu feature (git checkout -b feature/AmazingFeature).
-Commit tus cambios (git commit -m 'Add some AmazingFeature').
-Push a la rama (git push origin feature/AmazingFeature).
-Abre un Pull Request.
+| Categoría | Tecnología/Modelo | Uso |
+| :--- | :--- | :--- |
+| **Framework Bot** | `pyTelegramBotAPI` | Conexión e interacción con Telegram. |
+| **LLM/Generación** | **Groq API** (`llama-3.3-70b-versatile`) | Respuestas de chat, RAG *fallback* y generación de preguntas de quiz. |
+| **Visión AI** | **Groq API** (`llama-4-scout`) | Descripción y evaluación de imágenes enviadas por el usuario. |
+| **STT** | **Groq API** (`whisper-large-v3-turbo`) | Transcripción de audios de chat y respuestas de quiz. |
+| **NLP** | `transformers` (BERT) | Análisis de sentimiento del feedback post-quiz. |
+| **Datos/Análisis** | `Pandas` | Procesamiento y exportación de resultados a Excel. |
+| **Documentos** | `PyPDF2`, `python-docx`, `pytubefix` | Extracción de texto de documentos y videos para la generación de quizzes. |
