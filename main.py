@@ -777,26 +777,6 @@ def manejar_respuesta_quiz(call):
     bot.answer_callback_query(call.id, feedback)
     procesar_avance_quiz(bot, chat_id, call.message, call.from_user, es_correcta)
 
-@bot.message_handler(func=lambda message: True, chat_types=["private"])
-def responder_a_texto_general(message):
-    chat_id = message.chat.id
-    tipo_esperado_quiz = manejador_quizzes.obtener_tipo_esperado(chat_id)
-    if tipo_esperado_quiz in ('voice', 'photo'):
-        return 
-    
-    pregunta = message.text
-    bot.send_chat_action(chat_id, "typing")
-
-    respuesta = buscar_en_dataset(pregunta, dataset) 
-
-    if respuesta:
-        bot.reply_to(message, respuesta)
-    else:
-        respuesta_ia = get_groq_response(pregunta)
-        if respuesta_ia:
-            bot.reply_to(message, respuesta_ia)
-        else:
-            bot.reply_to(message, "Lo siento, no pude encontrar una respuesta ni generar una con la IA.")
 #Funcionamiento en publico y en privado
 # === COMANDO PARA EXPORTAR ===
 @bot.message_handler(commands=['exportar'])
@@ -981,6 +961,28 @@ def generar_resumen(message):
     except Exception as e:
         print(f"Error al generar resumen: {e}")
         bot.reply_to(message, "❌ Ocurrió un error al generar el resumen.", parse_mode='Markdown')
+
+#Para permitir que los otros comandos funcionen en privado
+@bot.message_handler(func=lambda message: True, chat_types=["private"])
+def responder_a_texto_general(message):
+    chat_id = message.chat.id
+    tipo_esperado_quiz = manejador_quizzes.obtener_tipo_esperado(chat_id)
+    if tipo_esperado_quiz in ('voice', 'photo'):
+        return 
+    
+    pregunta = message.text
+    bot.send_chat_action(chat_id, "typing")
+
+    respuesta = buscar_en_dataset(pregunta, dataset) 
+
+    if respuesta:
+        bot.reply_to(message, respuesta)
+    else:
+        respuesta_ia = get_groq_response(pregunta)
+        if respuesta_ia:
+            bot.reply_to(message, respuesta_ia)
+        else:
+            bot.reply_to(message, "Lo siento, no pude encontrar una respuesta ni generar una con la IA.")
 
 #FUNCIONAMIENTO EN GRUPOS
 @bot.message_handler(commands=['start'], chat_types=["group", "supergroup"])
