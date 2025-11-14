@@ -77,10 +77,14 @@ def get_groq_response(user_message: str) -> Optional[str]:
         * Capacidad de realizar análisis de sentimiento del feedback del usuario al finalizar un quiz.
 
         Comandos disponibles:
-        * /start: Mensaje de bienvenida.
-        * /empezar [nombre]: Inicia un quiz específico en el chat privado.
-        * /cursos: Muestra la lista de todos los quizzes disponibles.
-        * /exportar [nombre]: Exporta los resultados finales de un quiz específico a Excel.
+        * /start — Inicia el bot y muestra la bienvenida.  
+        * /help — Muestra una guia de ayuda. (Hacer que el usuario utilice este comando ante cualquier duda con los comandos)  
+        * /cursos — Lista todos los quizzes/cursos disponibles.  
+        * /empezar <nombre_del_quiz> — Inicia un quiz.  
+        * /resumen <tema> — Genera un resumen educativo con IA.  
+        * /estadisticas — Muestra tus resultados y promedio general.  
+        * /ranking — Muestra el top 10 de usuarios con mejor desempeño.  
+        * /exportar <nombre_del_quiz> — Descarga los resultados en Excel.
 
         Reglas y Tono:
         1. Responde preguntas generales, conversacionales y sobre las **Funcionalidades Clave** de esta plataforma.
@@ -88,9 +92,9 @@ def get_groq_response(user_message: str) -> Optional[str]:
         3. Si la pregunta está fuera del contexto de capacitación o es personal, responde: 'Mi función es asistir en temas de capacitación y aprendizaje interno.'
         4. NO inventes ni agregues información. Si la pregunta requiere datos específicos no cubiertos, indícalo educadamente.
         5. NO utilices emojis ni lenguaje coloquial.
-        6. Cuando el usuario pida un quiz o evaluación, genera entre 3 y 5 preguntas cortas. No incluyas respuestas.
-        7. Si el usuario solicita modificar, actualizar o agregar información al bot, responde que no tienes permisos.
-        8. Si el usuario intenta utilizar comandos, indica que deben usarse en el chat privado. Si el usuario intenta crear un quiz, no lo permitas, solo indica que debe hacerlo en el chat privado con el formato /empezar [nombre].
+        6. Si el usuario solicita modificar, actualizar o agregar información al bot, responde que no tienes permisos.
+        7. Si el usuario intenta utilizar comandos, indica que deben usarse con el formato correcto, envia al usuario al comando /help. Si el usuario intenta crear un quiz, no lo permitas, solo indica que debe hacerlo con el formato /empezar [nombre].
+        8. Si el usuario solicita hacer un quiz, indica que deber ir a un chat grupal y enviar un documento o link para crear el quiz.
         """
 
 
@@ -577,43 +581,28 @@ def escapar_html(text: str) -> str:
 #FUNCIONAMIENTO EN PRIVADO
 @bot.message_handler(commands=['start'], chat_types=["private"])
 def send_welcome(message):
-	# Responde con un mensaje de bienvenida
 	bot.send_chat_action(message.chat.id, "typing")
-	bot.reply_to(message, "¡Hola! Soy Gamma Academy, un bot IA. Pregúntame algo y responderé usando IA o mi base de datos. Usa el comando /empezar 'nombre del quiz' para hacer algun quiz. Usa el comando /cursos para ver cuales estan disponibles.")
+	
+	mensaje_privado = """
+    ¡Hola! Soy Gamma Academy. 🤖
 
-@bot.message_handler(commands=['resumen'], chat_types=["private"])
-def generar_resumen(message):
-    bot.send_chat_action(message.chat.id, "typing")
+    Mi funcionamiento es diferente dependiendo de dónde hablemos:
 
-    partes = message.text.split(maxsplit=1)
-    if len(partes) < 2:
-        bot.reply_to(message, "⚠️ Debes indicar un tema. Ejemplo: `/resumen electricidad`")
-        return
+    **➡️ En este chat privado (1 a 1):**
+    Estoy diseñado para ser tu asistente de aprendizaje y evaluación. Aquí puedes:
 
-    tema = partes[1].strip()
+    `/empezar [nombre_quiz]` - Iniciar un quiz.
+    `/help` — Muestra una guia de ayuda.
+    `/cursos` - Ver todos los quizzes disponibles.
+    `/resumen [tema]` - Pedirme un resumen sobre un tema.
+    `/estadisticas` - Ver tu puntaje promedio.
+    `/exportar [nombre_quiz]` - Descargar resultados en Excel.
+    (Además, puedes chatear conmigo para resolver dudas generales).
 
-    prompt = f"""
-    Genera un resumen educativo claro y conciso sobre el siguiente tema: {tema}.
-    Requisitos:
-    - Usa lenguaje técnico pero fácil de entender.
-    - Extensión máxima: 10 líneas.
-    - Incluye ejemplos o aplicaciones si es relevante.
-    - En español neutro.
+    **➡️ En un chat grupal:**
+    Mi rol es crear nuevo material. Puedes añadirme a un grupo y subir un archivo (.pdf, .docx) o un link de YouTube, y generaré un quiz para todos.
     """
-
-    try:
-        respuesta = cliente_groq.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.4,
-            max_tokens=400
-        )
-
-        resumen = respuesta.choices[0].message.content.strip()
-        bot.reply_to(message, f"📘 **Resumen sobre {tema}:**\n\n{resumen}", parse_mode='Markdown')
-    except Exception as e:
-        print(f"Error al generar resumen: {e}")
-        bot.reply_to(message, "❌ Ocurrió un error al generar el resumen.", parse_mode='Markdown')
+	bot.reply_to(message, mensaje_privado, parse_mode='Markdown')
 
 @bot.message_handler(commands=['empezar'], chat_types=["private"])
 def empezar_quiz(message):
@@ -788,53 +777,26 @@ def manejar_respuesta_quiz(call):
     bot.answer_callback_query(call.id, feedback)
     procesar_avance_quiz(bot, chat_id, call.message, call.from_user, es_correcta)
 
-@bot.message_handler(commands=['help'], chat_types=["private"])
-def enviar_ayuda(message):
-    """Mensaje de ayuda"""
+@bot.message_handler(func=lambda message: True, chat_types=["private"])
+def responder_a_texto_general(message):
+    chat_id = message.chat.id
+    tipo_esperado_quiz = manejador_quizzes.obtener_tipo_esperado(chat_id)
+    if tipo_esperado_quiz in ('voice', 'photo'):
+        return 
+    
+    pregunta = message.text
+    bot.send_chat_action(chat_id, "typing")
 
-    texto_ayuda = """
-🔧 Comandos disponibles:
+    respuesta = buscar_en_dataset(pregunta, dataset) 
 
-
-
-/start - Iniciar el bot
-/help - Mostrar esta ayuda
-
-
-📸 ¿Cómo usar el bot?
-
-
-1. Envía una imagen (foto, dibujo, captura, etc.)
-2. Espera unos segundos mientras proceso la imagen
-3. Recibirás una descripción detallada de lo que veo
-
-
-💡 Consejos:
-- Las imágenes más claras y nítidas generan mejores descripciones
-- Puedo analizar fotos, dibujos, gráficos, capturas de pantalla, etc.
-- Respondo en español siempre
-
-
-❓ ¿Problemas?
-Si algo no funciona, intenta enviar la imagen de nuevo."""
-    bot.reply_to(message, texto_ayuda)
-
-@bot.message_handler(commands=['estadisticas'], chat_types=["private"])
-def mostrar_estadisticas(message):
-    try:
-        with open("resultados/resultados_finales.json", "r", encoding="utf-8") as f:
-            data = json.load(f)
-        user_data = [d for d in data if d["usuario_id"] == message.from_user.id]
-        if not user_data:
-            bot.reply_to(message, "📊 No tenés resultados registrados todavía.")
-            return
-        total_quizzes = len(user_data)
-        promedio = sum(d["puntaje"]/d["total_preguntas"] for d in user_data) / total_quizzes * 100
-        bot.reply_to(message, f"📊 **Resumen de tu desempeño:**\n\nQuizzes hechos: {total_quizzes}\nPromedio general: {promedio:.1f}%", parse_mode='Markdown')
-    except Exception as e:
-        bot.reply_to(message, "⚠️ No se pudieron cargar las estadísticas.")
-        print(e)
-
+    if respuesta:
+        bot.reply_to(message, respuesta)
+    else:
+        respuesta_ia = get_groq_response(pregunta)
+        if respuesta_ia:
+            bot.reply_to(message, respuesta_ia)
+        else:
+            bot.reply_to(message, "Lo siento, no pude encontrar una respuesta ni generar una con la IA.")
 #Funcionamiento en publico y en privado
 # === COMANDO PARA EXPORTAR ===
 @bot.message_handler(commands=['exportar'])
@@ -883,32 +845,172 @@ def mostrar_cursos_disponibles(message):
         
     bot.send_message(chat_id, mensaje, parse_mode='Markdown')
 
-@bot.message_handler(func=lambda message: True, chat_types=["private"])
-def responder_a_texto_general(message):
-    chat_id = message.chat.id
-    tipo_esperado_quiz = manejador_quizzes.obtener_tipo_esperado(chat_id)
-    if tipo_esperado_quiz in ('voice', 'photo'):
-        return 
-    
-    pregunta = message.text
-    bot.send_chat_action(chat_id, "typing")
+@bot.message_handler(commands=['ranking'])
+def mostrar_ranking(message):
+    """Muestra el top 10 de usuarios con mejor desempeño."""
+    try:
+        with open("resultados/resultados_finales.json", "r", encoding="utf-8") as f:
+            data = json.load(f)
 
-    respuesta = buscar_en_dataset(pregunta, dataset) 
+        if not data:
+            bot.reply_to(message, "📊 No hay resultados registrados todavía.")
+            return
 
-    if respuesta:
-        bot.reply_to(message, respuesta)
-    else:
-        respuesta_ia = get_groq_response(pregunta)
-        if respuesta_ia:
-            bot.reply_to(message, respuesta_ia)
-        else:
-            bot.reply_to(message, "Lo siento, no pude encontrar una respuesta ni generar una con la IA.")
+        # Calcular promedios por usuario
+        puntajes_por_usuario = {}
+        for d in data:
+            usuario_id = d["usuario_id"]
+            nombre_usuario = d.get("usuario_nombre", f"Usuario {usuario_id}")
+            puntaje = d["puntaje"]
+            total = d["total_preguntas"]
+            promedio = (puntaje / total) * 100
+
+            if usuario_id in puntajes_por_usuario:
+                puntajes_por_usuario[usuario_id]["promedios"].append(promedio)
+            else:
+                puntajes_por_usuario[usuario_id] = {
+                    "nombre": nombre_usuario,
+                    "promedios": [promedio]
+                }
+
+        # Calcular promedio general de cada usuario
+        ranking = []
+        for user_id, info in puntajes_por_usuario.items():
+            promedio_final = sum(info["promedios"]) / len(info["promedios"])
+            ranking.append((info["nombre"], promedio_final))
+
+        # Ordenar por promedio descendente
+        ranking.sort(key=lambda x: x[1], reverse=True)
+
+        # Tomar top 10
+        top_10 = ranking[:10]
+
+        # Generar texto del ranking
+        texto_ranking = "🏆 **Ranking General de Gamma Academy** 🏆\n\n"
+        for i, (nombre, promedio) in enumerate(top_10, start=1):
+            texto_ranking += f"{i}. {nombre} — {promedio:.1f}%\n"
+
+        bot.reply_to(message, texto_ranking, parse_mode='Markdown')
+
+    except FileNotFoundError:
+        bot.reply_to(message, "⚠️ No se encontraron resultados guardados aún.")
+    except Exception as e:
+        print(f"Error al mostrar ranking: {e}")
+        bot.reply_to(message, "❌ Ocurrió un error al generar el ranking.")
+
+@bot.message_handler(commands=['help'])
+def enviar_ayuda(message):
+    """Muestra una guía detallada de uso del bot."""
+
+    texto_ayuda = """
+    🤖 **Gamma Academy - Centro de Ayuda**
+
+    📘 *Comandos principales:*
+
+    /start — Inicia el bot y muestra la bienvenida.  
+    /help — Muestra esta guía de ayuda.  
+    /cursos — Lista todos los quizzes/cursos disponibles.  
+    /empezar <nombre_del_quiz> — Inicia un quiz.  
+    /resumen <tema> — Genera un resumen educativo con IA.  
+    /estadisticas — Muestra tus resultados y promedio general.  
+    /ranking — Muestra el top 10 de usuarios con mejor desempeño.  
+    /exportar <nombre_del_quiz> — Descarga los resultados en Excel.
+    Además, podés chatear conmigo por privado para resolver dudas generales.
+
+    📸 *Tipos de preguntas que puedo manejar:*
+    - Texto (opciones múltiples)
+    - Audio (respuestas habladas)
+    - Imagen (responde enviando una foto o dibujo)
+
+    💡 *Consejos de uso:*
+    - Escribe los comandos siempre en minúscula.
+    - Si querés hacer un quiz nuevo, usá un documento o link de YouTube en un grupo.
+    - Cuanto más claro sea el material, mejores preguntas se generan.
+
+    ❓ *Soporte y errores:*
+    Si algo falla, intentá reiniciar el bot o volver a enviar el archivo.
+    """
+    bot.reply_to(message, texto_ayuda, parse_mode='Markdown')
+
+@bot.message_handler(commands=['estadisticas'])
+def mostrar_estadisticas(message):
+    try:
+        with open("resultados/resultados_finales.json", "r", encoding="utf-8") as f:
+            data = json.load(f)
+        user_data = [d for d in data if d["usuario_id"] == message.from_user.id]
+        if not user_data:
+            bot.reply_to(message, "📊 No tenés resultados registrados todavía.")
+            return
+        total_quizzes = len(user_data)
+        promedio = sum(d["puntaje"]/d["total_preguntas"] for d in user_data) / total_quizzes * 100
+        bot.reply_to(message, f"📊 **Resumen de tu desempeño:**\n\nQuizzes hechos: {total_quizzes}\nPromedio general: {promedio:.1f}%", parse_mode='Markdown')
+    except Exception as e:
+        bot.reply_to(message, "⚠️ No se pudieron cargar las estadísticas.")
+        print(e)
+
+@bot.message_handler(commands=['resumen'])
+def generar_resumen(message):
+    bot.send_chat_action(message.chat.id, "typing")
+
+    partes = message.text.split(maxsplit=1)
+    if len(partes) < 2:
+        bot.reply_to(message, "⚠️ Debes indicar un tema. Ejemplo: `/resumen electricidad`")
+        return
+
+    tema = partes[1].strip()
+
+    prompt = f"""
+    Genera un resumen educativo claro y conciso sobre el siguiente tema: {tema}.
+    Requisitos:
+    - Usa lenguaje técnico pero fácil de entender.
+    - Extensión máxima: 10 líneas.
+    - Incluye ejemplos o aplicaciones si es relevante.
+    - En español neutro.
+    """
+
+    try:
+        respuesta = cliente_groq.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.4,
+            max_tokens=400
+        )
+
+        resumen = respuesta.choices[0].message.content.strip()
+        bot.reply_to(message, f"📘 **Resumen sobre {tema}:**\n\n{resumen}", parse_mode='Markdown')
+    except Exception as e:
+        print(f"Error al generar resumen: {e}")
+        bot.reply_to(message, "❌ Ocurrió un error al generar el resumen.", parse_mode='Markdown')
 
 #FUNCIONAMIENTO EN GRUPOS
 @bot.message_handler(commands=['start'], chat_types=["group", "supergroup"])
 def send_welcome_group(message):
     bot.send_chat_action(message.chat.id, "typing")
-    bot.reply_to(message, "¡Hola! Soy Gamma Academy, un bot IA. Envie un archivo o un video de Youtube y creare un quiz basado en su contenido.")
+    
+    mensaje_grupal = """
+    ¡Hola! Soy Gamma Academy. 🤖
+
+    Mi funcionamiento es diferente dependiendo de dónde hablemos:
+
+    **➡️ En este chat grupal:**
+    Mi rol principal es crear quizzes. Para usarme, solo tienen que:
+
+    1.  Subir un archivo (.pdf, .docx, .txt) o pegar un link de YouTube.
+    2.  Responder a mi mensaje con el nombre que quieren para el quiz.
+    3.  Elegir la longitud (Corto/Medio/Largo).
+
+    También pueden usar:
+    `/cursos` - Ver todos los quizzes disponibles.
+    `/help` — Muestra una guia de ayuda.
+    `/exportar [nombre_quiz]` - Descargar los resultados de un quiz en Excel.
+    `/estadisticas` - Ver un resumen de tu desempeño en los quizzes.
+    `/ranking` - Ver el top 10 de usuarios con mejor desempeño.
+    `/resumen [tema]` - Obtener un resumen educativo sobre un tema.
+
+    **➡️ En un chat privado (1 a 1):**
+    En privado, pueden usar `/empezar [nombre_quiz]` para responder los quizzes que creamos aquí.
+    """
+    bot.reply_to(message, mensaje_grupal, parse_mode='Markdown')
 
 archivos_pendientes = {}  # Estructura separada para no interferir con sesiones de quizzes en privado
 @bot.message_handler(content_types=['document'], chat_types=["group", "supergroup"])
@@ -1050,7 +1152,7 @@ def generar_quiz_final(call):
         if quiz_key:
             bot.send_message(
                 chat_id,
-                f"✅ ¡Quiz *{nombre_quiz.lower()}* generado con éxito!\n\nEnvíenme al privado el comando:\n`/empezar {quiz_key}`",
+                f"✅ ¡Quiz *{nombre_quiz.lower()}* generado con éxito!\n\nEnvíenme *al privado* el comando:\n`/empezar {quiz_key}`",
                 parse_mode='Markdown'
             )
             bot.send_message(

@@ -1,46 +1,50 @@
 [
-    {
-        "pregunta": "¿quienes somos?",
-        "respuesta": "Somos Gamma Academy, tu plataforma de capacitación interna basada en IA, diseñada para reforzar el aprendizaje corporativo a través de quizzes interactivos y herramientas de IA."
-    },
-    {
-        "pregunta": "¿como creo un quiz?",
-        "respuesta": "Para crear un nuevo quiz, envía un archivo (PDF, DOCX) o un enlace de video de YouTube a un grupo donde esté el bot. Luego, responde con el nombre que deseas darle al quiz. El bot generará las preguntas automáticamente."
-    },
-    {
-        "pregunta": "¿como empezar un quiz?",
-        "respuesta": "Para iniciar un quiz en privado, utiliza el comando /empezar seguido del nombre exacto del quiz. Por ejemplo: /empezar nombre_del_quiz."
-    },
-    {
-        "pregunta": "¿como ver los cursos disponibles?",
-        "respuesta": "Usa el comando /cursos en el chat privado para ver la lista completa de todos los quizzes (cursos) disponibles actualmente en el sistema."
-    },
-    {
-        "pregunta": "¿como exportar resultados?",
-        "respuesta": "Para exportar los resultados finales de un quiz específico, utiliza el comando /exportar seguido del nombre exacto del quiz en cualquier grupo o chat privado. Por ejemplo: /exportar nombre_del_quiz."
-    },
-    {
-        "pregunta": "¿porque no puedo exportar?",
-        "respuesta": "La exportación puede fallar si no hay resultados registrados para ese quiz en el sistema, o si el nombre del quiz no coincide exactamente con el registrado."
-    },
-    {
-        "pregunta": "¿que tipos de preguntas hay en un quiz?",
-        "respuesta": "Los quizzes pueden tener tres tipos de preguntas: 'text' (opción múltiple con botones), 'voice' (debes responder con un audio), y 'photo' (debes responder con una imagen)."
-    },
-    {
-        "pregunta": "¿la ia me evalua voz e imagen?",
-        "respuesta": "Sí, las respuestas de voz y las imágenes son evaluadas automáticamente por un modelo de Inteligencia Artificial (Groq) que compara tu contenido con la respuesta esperada."
-    },
-    {
-        "pregunta": "¿como funciona el analisis de sentimiento?",
-        "respuesta": "Al finalizar cada quiz, el bot te pregunta tu opinión. El texto que envíes es procesado por un modelo BERT Multilingüe para clasificar tu feedback como 'Muy Positivo', 'Negativo', etc."
-    },
-    {
-        "pregunta": "¿que hago si el bot se traba?",
-        "respuesta": "Si el bot se queda sin responder, intenta enviar el comando /start de nuevo o vuelve a iniciar el quiz con /empezar. Si el error persiste, contacta al administrador."
-    },
-    {
-        "pregunta": "¿puedo subir un pdf para un quiz?",
-        "respuesta": "Sí, puedes subir archivos en formato PDF, DOCX, TXT, hasta videos de YouTube para que la IA genere un quiz basado en su contenido."
-    }
+  {
+    "pregunta": "¿Cómo te llamas?",
+    "respuesta": "Me llamo Gamma Academy, soy un asistente virtual de capacitación."
+  },
+  {
+    "pregunta": "¿Qué puedes hacer?",
+    "respuesta": "Puedo crear quizzes a partir de archivos (PDF, DOCX) y enlaces de YouTube. También puedo evaluar tus respuestas (texto, voz e imagen), generar resúmenes de temas y exportar los resultados finales a un archivo Excel."
+  },
+  {
+    "pregunta": "¿Cómo creo un quiz?",
+    "respuesta": "Para crear un quiz, debes estar en un chat grupal. Simplemente envía un archivo (.pdf, .docx) o un enlace de YouTube. Luego, te pediré un nombre y la longitud deseada."
+  },
+  {
+    "pregunta": "¿Qué longitudes de quiz puedo crear?",
+    "respuesta": "Puedes elegir entre tres longitudes al crear un quiz: Corto (5 preguntas), Medio (7 preguntas) o Largo (10 preguntas)."
+  },
+  {
+    "pregunta": "¿Cómo empiezo un quiz?",
+    "respuesta": "Para iniciar un quiz, debes escribirme por privado el comando /empezar seguido del nombre del quiz. Por ejemplo: /empezar mi_quiz_de_prueba"
+  },
+  {
+    "pregunta": "¿Cómo veo los quizzes disponibles?",
+    "respuesta": "Puedes ver todos los quizzes generados usando el comando /cursos. Esto funciona tanto en privado como en grupos."
+  },
+  {
+    "pregunta": "¿Qué tipos de preguntas pueden tener los quizzes?",
+    "respuesta": "Los quizzes pueden contener tres tipos de preguntas: 'text' (opción múltiple), 'photo' (requiere enviar una imagen) y 'voice' (requiere enviar un mensaje de voz)."
+  },
+  {
+    "pregunta": "¿Qué modelo de IA usas?",
+    "respuesta": "Utilizo la API de Groq. Específicamente, uso 'llama-3.3-70b-versatile' para chat, 'meta-llama/llama-4-scout-17b-16e-instruct' para visión y explicaciones, y 'whisper-large-v3-turbo' para transcripción de audio."
+  },
+  {
+    "pregunta": "¿Cómo exporto los resultados de un quiz?",
+    "respuesta": "Puedes exportar los resultados finales de cualquier quiz a un archivo Excel (.xlsx) usando el comando /exportar seguido del nombre del quiz."
+  },
+  {
+    "pregunta": "¿Qué haces con mi feedback?",
+    "respuesta": "Al finalizar un quiz, analizo tu opinión usando un modelo de análisis de sentimiento (nlptown/bert-base-multilingual-uncased-sentiment) para clasificarla de 1 a 5 estrellas y entender tu experiencia."
+  },
+  {
+    "pregunta": "¿Qué archivos aceptas para crear un quiz?",
+    "respuesta": "Puedo crear quizzes a partir de archivos PDF (.pdf) y documentos de Word (.docx). También puedo procesar enlaces de YouTube."
+  },
+  {
+    "pregunta": "¿Cómo generas resúmenes?",
+    "respuesta": "Puedes pedirme un resumen en un chat privado usando el comando /resumen seguido del tema. Por ejemplo: /resumen Inteligencia Artificial"
+  }
 ]
