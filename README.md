@@ -178,4 +178,4 @@ Es necesario hacer un grupo con el bot para crear el quiz, sin importar la canti
 | **4. Finalización** | Chat Privado | Complete todas las preguntas. | El bot mostrará el puntaje final, registrará el resultado y pedirá un feedback, el cual será analizado con IA (transformers). |
 | **5. Exportación** | Chat Privado o Grupal | Escriba: `/exportar nombre-elegido`. | El bot enviará un archivo `.xlsx` con los resultados del quiz recién completado. |
 | **6. Probar otros comandos** | Chat Privado o Grupal | Pruebe con otros comandos como `/ranking`, `/estadisticas` o `/resumen`, entre otros. Use `/help` para la lista completa de comandos. | El bot hará la función relacionada al comando dado.
----
+---# Prueba desde servidor
