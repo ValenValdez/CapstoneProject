@@ -23,7 +23,12 @@ El sistema almacena el progreso de los usuarios y permite la exportación de res
 
 - 📈 **Exportación de Resultados**: Genera un archivo `.xlsx` (Excel) con los resultados de un quiz específico para seguimiento y auditoría.
 
-## 🚀 Instalación
+## 🚀 Acceso Rápido y Estado de Despliegue
+El bot Gamma Academy se encuentra desplegado y activo. Puedes interactuar con él inmediatamente usando el siguiente enlace o buscándolo en Telegram: https://t.me/SICGammaAcademy_bot
+
+**Nota**: El bot está activo 24/7 en el entorno de servidor. Puede empezar a probar los comandos y la creación de quizzes de inmediato
+
+## 🛠️ Instalación y Despliegue Local
 **Requisitos Previos:**
 - Python 3.10 o superior.
 - Cuenta de Telegram.
@@ -178,4 +183,3 @@ Es necesario hacer un grupo con el bot para crear el quiz, sin importar la canti
 | **4. Finalización** | Chat Privado | Complete todas las preguntas. | El bot mostrará el puntaje final, registrará el resultado y pedirá un feedback, el cual será analizado con IA (transformers). |
 | **5. Exportación** | Chat Privado o Grupal | Escriba: `/exportar nombre-elegido`. | El bot enviará un archivo `.xlsx` con los resultados del quiz recién completado. |
 | **6. Probar otros comandos** | Chat Privado o Grupal | Pruebe con otros comandos como `/ranking`, `/estadisticas` o `/resumen`, entre otros. Use `/help` para la lista completa de comandos. | El bot hará la función relacionada al comando dado.
----# Prueba desde servidor
