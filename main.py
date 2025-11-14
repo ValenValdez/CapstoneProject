@@ -1012,6 +1012,13 @@ def send_welcome_group(message):
     """
     bot.reply_to(message, mensaje_grupal, parse_mode='Markdown')
 
+@bot.message_handler(commands=['empezar'], chat_types=["group", "supergroup"])
+def empezar_en_grupo(message):
+    bot.reply_to(
+        message,
+        "⚠️ El comando /empezar solo funciona en chats privados. Por favor, envíame un mensaje directo para iniciar un quiz."
+    )
+
 archivos_pendientes = {}  # Estructura separada para no interferir con sesiones de quizzes en privado
 @bot.message_handler(content_types=['document'], chat_types=["group", "supergroup"])
 def handle_document(message):
